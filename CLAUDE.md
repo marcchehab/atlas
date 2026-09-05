@@ -41,6 +41,4 @@ Node-Monolith, so wenig bewegliche Teile wie möglich:
 
 ## Kontext
 
-- Brainstorming-Notizen: `~/Documents/1_Projekte/ginf-materialsammlung.md`
 - Rahmenlehrplan-PDF: https://edudoc.ch/record/232281/files/Rahmenlehrplan-maturitatsschulen.pdf
-- Abgestimmt mit Werner/Rocco (SVIA-Kontext), E-Mail vom 2026-09-05.
