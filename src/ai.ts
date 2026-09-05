@@ -4,29 +4,30 @@ export interface Klassifikation {
   qualityScore: number // 0–100; <20 = nicht aufgenommen
   titel: string
   zusammenfassung: string
-  lernzielCodes: string[]
+  zuordnungen: string[] // Codes: "T1.2" (ganzes Teilgebiet) oder "K1.2.1" (einzelne Kompetenz)
   tags: string[]
   neueTagVorschlaege: string[]
 }
 
-export interface LernzielInfo {
-  code: string
-  text: string
+// Auswahlliste fürs erzwungene Enum: Teilgebiete und Kompetenzen des Lehrplans.
+export interface ZuordnungsOption {
+  code: string // "T1.2" | "K1.2.1"
+  label: string
 }
 
 export async function klassifiziere(
   text: string,
-  lernziele: LernzielInfo[],
+  optionen: ZuordnungsOption[],
   tagNamen: string[]
 ): Promise<Klassifikation> {
   const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) return mockKlassifikation(text, lernziele, tagNamen)
+  if (!apiKey) return mockKlassifikation(text, optionen, tagNamen)
 
   const ai = new GoogleGenAI({ apiKey })
-  const prompt = `Du klassifizierst Unterrichtsmaterial für Schweizer Gymnasien (Fach Informatik).
+  const prompt = `Du klassifizierst Unterrichtsmaterial für Schweizer Gymnasien nach dem Rahmenlehrplan 2024.
 
-Lernziele (Code: Beschreibung):
-${lernziele.map((l) => `${l.code}: ${l.text}`).join('\n')}
+Lehrplan-Raster (T… = ganzes Teilgebiet, K… = einzelne Kompetenz):
+${optionen.map((o) => `${o.code}: ${o.label}`).join('\n')}
 
 Erlaubte Tags: ${tagNamen.join(', ')}
 
@@ -34,7 +35,7 @@ Aufgaben:
 1. qualityScore 0–100: Taugt das als Unterrichtsmaterial fürs Gymnasium? (<20 = Spam/untauglich; Latte tief ansetzen, im Zweifel aufnehmen)
 2. titel: prägnanter Titel des Materials
 3. zusammenfassung: 2–3 Sätze auf Deutsch
-4. lernzielCodes: alle abgedeckten Lernziele (leer, wenn keines passt)
+4. zuordnungen: abgedeckte Kompetenzen (K…); nur wenn ein Material ein Teilgebiet breit abdeckt, stattdessen dessen T…-Code. Leer, wenn nichts passt.
 5. tags: passende Tags aus der erlaubten Liste
 6. neueTagVorschlaege: max. 2 neue Tags, falls wichtige Aspekte fehlen (sonst leer)
 
@@ -52,11 +53,11 @@ ${text.slice(0, 30000)}`
           qualityScore: { type: Type.INTEGER },
           titel: { type: Type.STRING },
           zusammenfassung: { type: Type.STRING },
-          lernzielCodes: { type: Type.ARRAY, items: { type: Type.STRING, enum: lernziele.map((l) => l.code) } },
+          zuordnungen: { type: Type.ARRAY, items: { type: Type.STRING, enum: optionen.map((o) => o.code) } },
           tags: { type: Type.ARRAY, items: { type: Type.STRING, enum: tagNamen } },
           neueTagVorschlaege: { type: Type.ARRAY, items: { type: Type.STRING } },
         },
-        required: ['qualityScore', 'titel', 'zusammenfassung', 'lernzielCodes', 'tags', 'neueTagVorschlaege'],
+        required: ['qualityScore', 'titel', 'zusammenfassung', 'zuordnungen', 'tags', 'neueTagVorschlaege'],
       },
     },
   })
@@ -64,12 +65,13 @@ ${text.slice(0, 30000)}`
 }
 
 // Ohne GEMINI_API_KEY: simple Keyword-Heuristik, damit die Pipeline offline durchläuft.
-function mockKlassifikation(text: string, lernziele: LernzielInfo[], tagNamen: string[]): Klassifikation {
+function mockKlassifikation(text: string, optionen: ZuordnungsOption[], tagNamen: string[]): Klassifikation {
   const lower = text.toLowerCase()
   const wörter = (s: string) => s.toLowerCase().split(/\W+/).filter((w) => w.length > 4)
-  const treffer = (l: LernzielInfo) => wörter(l.text).filter((w) => lower.includes(w)).length
-  const lernzielCodes = lernziele
-    .map((l) => ({ code: l.code, n: treffer(l) }))
+  const treffer = (o: ZuordnungsOption) => wörter(o.label).filter((w) => lower.includes(w)).length
+  const zuordnungen = optionen
+    .filter((o) => o.code.startsWith('K'))
+    .map((o) => ({ code: o.code, n: treffer(o) }))
     .filter((x) => x.n >= 2)
     .sort((a, b) => b.n - a.n)
     .slice(0, 3)
@@ -79,7 +81,7 @@ function mockKlassifikation(text: string, lernziele: LernzielInfo[], tagNamen: s
     qualityScore: text.length < 300 ? 15 : 60,
     titel: ersteZeile.replace(/^#+\s*/, '').slice(0, 80),
     zusammenfassung: `[Mock ohne GEMINI_API_KEY] ${text.replace(/\s+/g, ' ').slice(0, 200)}…`,
-    lernzielCodes,
+    zuordnungen,
     tags: tagNamen.filter((t) => lower.includes(t.toLowerCase())).slice(0, 3),
     neueTagVorschlaege: [],
   }

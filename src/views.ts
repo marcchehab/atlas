@@ -1,10 +1,15 @@
 // Server-rendered HTML als Template-Strings — bewusst ohne Template-Engine.
+// Look angelehnt an Eduskript: Inter (UI), Barlow Condensed (Headings), #f5f5f5, Primärblau.
 
 export function esc(s: unknown): string {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
 }
 
-export function layout(titel: string, body: string, user?: { nickname: string } | null): string {
+export function kürze(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s
+}
+
+export function layout(titel: string, sidebar: string, body: string, user?: { nickname: string } | null): string {
   return `<!doctype html>
 <html lang="de">
 <head>
@@ -12,38 +17,102 @@ export function layout(titel: string, body: string, user?: { nickname: string } 
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(titel)} – Atlas</title>
 <script src="/htmx.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  :root { --akzent: #1a5fb4; --rand: #ddd; }
-  body { font-family: system-ui, sans-serif; max-width: 52rem; margin: 0 auto; padding: 1rem; line-height: 1.5; color: #222; }
-  header { display: flex; align-items: baseline; gap: 1rem; border-bottom: 2px solid var(--akzent); padding-bottom: .5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
-  header h1 { margin: 0; font-size: 1.4rem; } header h1 a { color: var(--akzent); text-decoration: none; }
-  header nav { margin-left: auto; display: flex; gap: .8rem; font-size: .9rem; }
-  a { color: var(--akzent); }
-  .karte { border: 1px solid var(--rand); border-radius: 8px; padding: .8rem 1rem; margin-bottom: .8rem; }
-  .karte h3 { margin: 0 0 .3rem; font-size: 1.05rem; }
-  .meta { font-size: .8rem; color: #666; }
-  .tag { display: inline-block; background: #eef3fa; border-radius: 999px; padding: .05rem .6rem; font-size: .8rem; margin-right: .3rem; color: var(--akzent); text-decoration: none; }
-  .upvote { border: 1px solid var(--rand); border-radius: 6px; background: #fff; cursor: pointer; padding: .2rem .6rem; font-size: .9rem; }
-  .upvote.aktiv { background: var(--akzent); color: #fff; border-color: var(--akzent); }
-  form.suche input[type=search] { width: 60%; padding: .4rem; }
-  input, select, button { font: inherit; padding: .35rem .5rem; }
-  .bereich { margin-top: 1.2rem; }
-  .hinweis { background: #fff8e1; border: 1px solid #e6d9a0; border-radius: 6px; padding: .5rem .8rem; font-size: .85rem; }
-  table { border-collapse: collapse; width: 100%; } td, th { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid var(--rand); font-size: .9rem; }
+  :root { --primary: hsl(221.2 83.2% 53.3%); --bg: #f5f5f5; --fg: #262626; --rand: #e4e4e4; --meta: #737373; }
+  * { box-sizing: border-box; }
+  body { font-family: Inter, system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--fg); line-height: 1.5; }
+  h1, h2, h3 { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; letter-spacing: .01em; }
+  a { color: var(--primary); text-decoration: none; } a:hover { text-decoration: underline; }
+
+  .app { display: flex; min-height: 100vh; }
+  aside { width: 300px; flex-shrink: 0; background: #fff; border-right: 1px solid var(--rand); padding: 1rem; overflow-y: auto; position: sticky; top: 0; height: 100vh; }
+  main { flex: 1; padding: 1.5rem 2rem; max-width: 56rem; }
+
+  aside .logo { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 1.5rem; color: var(--primary); display: block; margin-bottom: .2rem; }
+  aside .untertitel { font-size: .75rem; color: var(--meta); margin-bottom: 1rem; }
+  aside select { width: 100%; padding: .4rem; font: inherit; border: 1px solid var(--rand); border-radius: 6px; background: #fff; margin-bottom: 1rem; }
+  .lg { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: .95rem; margin: .9rem 0 .2rem; }
+  .tg, .ko { display: block; border-radius: 6px; padding: .15rem .5rem; color: var(--fg); font-size: .85rem; }
+  .tg { font-weight: 600; margin-top: .15rem; }
+  .ko { padding-left: 1.4rem; color: var(--meta); font-size: .8rem; }
+  .tg:hover, .ko:hover { background: var(--bg); text-decoration: none; }
+  .tg.aktiv, .ko.aktiv { background: var(--primary); color: #fff; }
+  .anzahl { color: var(--meta); font-weight: 400; font-size: .75rem; }
+  .tg.aktiv .anzahl, .ko.aktiv .anzahl { color: #cdd9f7; }
+  aside .fuss { margin-top: 1.2rem; padding-top: .8rem; border-top: 1px solid var(--rand); font-size: .8rem; display: flex; flex-direction: column; gap: .3rem; }
+
+  .karte { background: #fff; border: 1px solid var(--rand); border-radius: 10px; padding: .9rem 1.1rem; margin-bottom: .8rem; }
+  .karte h3 { margin: 0 0 .3rem; font-size: 1.15rem; }
+  .meta { font-size: .8rem; color: var(--meta); }
+  .tag { display: inline-block; background: #eef3fa; border-radius: 999px; padding: .05rem .6rem; font-size: .78rem; margin-right: .3rem; color: var(--primary); }
+  .tag.ziel { background: #f3eefa; }
+  .upvote { border: 1px solid var(--rand); border-radius: 8px; background: #fff; cursor: pointer; padding: .25rem .7rem; font-size: .9rem; font-family: inherit; }
+  .upvote.aktiv { background: var(--primary); color: #fff; border-color: var(--primary); }
+  form.suche { display: flex; gap: .5rem; margin-bottom: 1.2rem; }
+  form.suche input[type=search] { flex: 1; padding: .5rem .7rem; border: 1px solid var(--rand); border-radius: 8px; font: inherit; }
+  input, select, button { font: inherit; }
+  button { background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: .5rem 1rem; cursor: pointer; }
+  input[type=url], input[type=email], input[type=text], input:not([type]) { padding: .5rem .7rem; border: 1px solid var(--rand); border-radius: 8px; }
+  .hinweis { background: #fff8e1; border: 1px solid #e6d9a0; border-radius: 8px; padding: .5rem .8rem; font-size: .85rem; }
+  table { border-collapse: collapse; width: 100%; background: #fff; border-radius: 10px; }
+  td, th { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--rand); font-size: .88rem; }
 </style>
 </head>
 <body>
-<header>
-  <h1><a href="/">Atlas</a></h1>
-  <span class="meta">Unterrichtsmaterialien Schweizer Gymnasien</span>
-  <nav>
-    <a href="/melden">Quelle melden</a>
-    <a href="/quellen">Quellen</a>
-    ${user ? `<span>${esc(user.nickname)}</span> <a href="#" onclick="document.getElementById('lo').submit();return false">Abmelden</a><form id="lo" method="post" action="/logout" hidden></form>` : `<a href="/login">Anmelden</a>`}
-  </nav>
-</header>
-${body}
+<div class="app">
+<aside>${sidebar}</aside>
+<main>${body}</main>
+</div>
 </body></html>`
+}
+
+export interface SidebarDaten {
+  faecher: { code: string; name: string }[]
+  fachCode: string
+  lehrplanUrl: string | null
+  lerngebiete: {
+    nummer: number
+    name: string
+    teilgebiete: {
+      code: string
+      name: string
+      anzahl: number
+      kompetenzen: { code: string; text: string; anzahl: number }[]
+    }[]
+  }[]
+  aktiv?: string // "T1.2" | "K1.2.1"
+  user?: { nickname: string } | null
+}
+
+export function sidebar(d: SidebarDaten): string {
+  const basis = `/fach/${d.fachCode}`
+  return `<a class="logo" href="${basis}">Atlas</a>
+<div class="untertitel">Unterrichtsmaterialien Schweizer Gymnasien</div>
+<select onchange="location='/fach/'+this.value">
+${d.faecher.map((f) => `<option value="${esc(f.code)}"${f.code === d.fachCode ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}
+</select>
+${d.lerngebiete
+  .map(
+    (lg) => `<div class="lg">${lg.nummer}. ${esc(lg.name)}</div>
+${lg.teilgebiete
+  .map(
+    (tg) => `<a class="tg${d.aktiv === 'T' + tg.code ? ' aktiv' : ''}" href="${basis}/t/${tg.code}">${tg.code} ${esc(tg.name)} <span class="anzahl">${tg.anzahl || ''}</span></a>
+${tg.kompetenzen
+  .map((ko) => `<a class="ko${d.aktiv === 'K' + ko.code ? ' aktiv' : ''}" href="${basis}/k/${ko.code}" title="${esc(ko.text)}">${esc(kürze(ko.text, 48))} <span class="anzahl">${ko.anzahl || ''}</span></a>`)
+  .join('\n')}`
+  )
+  .join('\n')}`
+  )
+  .join('\n')}
+<div class="fuss">
+  ${d.lehrplanUrl ? `<a href="${esc(d.lehrplanUrl)}" rel="noopener">Lehrplan (Original-PDF)</a>` : ''}
+  <a href="/suche">Suche</a>
+  <a href="/melden">Quelle melden</a>
+  <a href="/quellen">Quellen</a>
+  ${d.user ? `<span class="meta">${esc(d.user.nickname)} · <a href="#" onclick="document.getElementById('lo').submit();return false">abmelden</a></span><form id="lo" method="post" action="/logout" hidden></form>` : `<a href="/login">Anmelden</a>`}
+</div>`
 }
 
 export interface MaterialKarte {
@@ -52,9 +121,9 @@ export interface MaterialKarte {
   url: string
   zusammenfassung: string
   tags: string[]
+  zuordnungen: { code: string; label: string; href: string }[]
   upvotes: number
   meinUpvote: boolean
-  lernziele?: string[]
 }
 
 export function upvoteButton(m: { id: number; upvotes: number; meinUpvote: boolean }, eingeloggt: boolean): string {
@@ -69,7 +138,7 @@ export function materialKarte(m: MaterialKarte, eingeloggt: boolean): string {
       <h3><a href="${esc(m.url)}" rel="noopener">${esc(m.titel)}</a></h3>
       <p style="margin:.2rem 0">${esc(m.zusammenfassung)}</p>
       <div>${m.tags.map((t) => `<a class="tag" href="/suche?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}
-      ${(m.lernziele ?? []).map((c) => `<a class="tag" style="background:#f3eefa" href="/lernziel/${esc(c)}">${esc(c)}</a>`).join('')}</div>
+      ${m.zuordnungen.map((z) => `<a class="tag ziel" href="${z.href}" title="${esc(z.label)}">${esc(z.code)}</a>`).join('')}</div>
     </div>
     ${upvoteButton(m, eingeloggt)}
   </div>

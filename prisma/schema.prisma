@@ -37,13 +37,44 @@ model Quelle {
   materialien   Material[]
 }
 
-model Lernziel {
-  id       Int        @id @default(autoincrement())
-  code     String     @unique // z.B. "INF.GF.1.1"
-  fach     String
-  bereich  String
-  text     String
-  eintraege MaterialLernziel[]
+// Lehrplan-Hierarchie: Fach → Lerngebiet → Teilgebiet → Kompetenz (feinste Ebene).
+// Admins sollen pro Fach einen Lehrplan mit diesen Ebenen erfassen können.
+model Fach {
+  id          Int          @id @default(autoincrement())
+  code        String       @unique // z.B. "informatik-gf"
+  name        String // z.B. "Informatik (GINF)"
+  lehrplanUrl String? // Link aufs Original (RLP-PDF)
+  lerngebiete Lerngebiet[]
+}
+
+model Lerngebiet {
+  id          Int          @id @default(autoincrement())
+  fach        Fach         @relation(fields: [fachId], references: [id], onDelete: Cascade)
+  fachId      Int
+  nummer      Int // "1"
+  name        String // "Algorithmen und Programme"
+  teilgebiete Teilgebiet[]
+
+  @@unique([fachId, nummer])
+}
+
+model Teilgebiet {
+  id           Int                 @id @default(autoincrement())
+  lerngebiet   Lerngebiet          @relation(fields: [lerngebietId], references: [id], onDelete: Cascade)
+  lerngebietId Int
+  code         String // "1.2"
+  name         String // "Algorithmische Problemlösung"
+  kompetenzen  Kompetenz[]
+  zuordnungen  MaterialZuordnung[]
+}
+
+model Kompetenz {
+  id           Int                 @id @default(autoincrement())
+  teilgebiet   Teilgebiet          @relation(fields: [teilgebietId], references: [id], onDelete: Cascade)
+  teilgebietId Int
+  code         String // "1.2.1" (RLP nummeriert Kompetenzen nicht — eigene Zählung)
+  text         String
+  zuordnungen  MaterialZuordnung[]
 }
 
 model Material {
@@ -55,19 +86,21 @@ model Material {
   zusammenfassung String
   contentHash    String?
   createdAt      DateTime           @default(now())
-  lernziele      MaterialLernziel[]
+  zuordnungen    MaterialZuordnung[]
   tags           MaterialTag[]
   upvotes        Upvote[]
 }
 
-// Ein Material kann mehrere Lernziele abdecken → pro Ziel ein Eintrag.
-model MaterialLernziel {
-  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
-  materialId Int
-  lernziel   Lernziel @relation(fields: [lernzielId], references: [id])
-  lernzielId Int
-
-  @@id([materialId, lernzielId])
+// Material kann einem ganzen Teilgebiet oder einer einzelnen Kompetenz zugeordnet sein.
+// teilgebietId ist immer gesetzt (bei Kompetenz-Zuordnung deren Teilgebiet) — vereinfacht Abfragen.
+model MaterialZuordnung {
+  id           Int         @id @default(autoincrement())
+  material     Material    @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  materialId   Int
+  teilgebiet   Teilgebiet  @relation(fields: [teilgebietId], references: [id], onDelete: Cascade)
+  teilgebietId Int
+  kompetenz    Kompetenz?  @relation(fields: [kompetenzId], references: [id], onDelete: Cascade)
+  kompetenzId  Int?
 }
 
 model Tag {

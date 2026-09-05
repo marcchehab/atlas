@@ -6,7 +6,7 @@ import { klassifiziere } from './ai.js'
 const TODES_SCHWELLE = 3
 
 // Prototyp: eine Quelle = eine Seite = ein Material. Sitemap-/Git-/Cloud-Spidering kommt später.
-export async function crawlQuelle(quelleId: number): Promise<string> {
+export async function crawlQuelle(quelleId: number, force = false): Promise<string> {
   const quelle = await prisma.quelle.findUniqueOrThrow({ where: { id: quelleId } })
 
   let html: string
@@ -15,7 +15,7 @@ export async function crawlQuelle(quelleId: number): Promise<string> {
     const res = await fetch(quelle.url, {
       headers: {
         'User-Agent': 'AtlasBot/0.1 (+https://atlas.eduskript.org)',
-        ...(quelle.etag ? { 'If-None-Match': quelle.etag } : {}),
+        ...(quelle.etag && !force ? { 'If-None-Match': quelle.etag } : {}),
       },
       redirect: 'follow',
       signal: AbortSignal.timeout(20000),
@@ -35,7 +35,7 @@ export async function crawlQuelle(quelleId: number): Promise<string> {
   }
 
   const contentHash = crypto.createHash('sha256').update(html).digest('hex')
-  if (contentHash === quelle.contentHash) {
+  if (contentHash === quelle.contentHash && !force) {
     await prisma.quelle.update({ where: { id: quelleId }, data: { todesCounter: 0, lastCrawledAt: new Date() } })
     return 'unverändert (Hash)'
   }
@@ -47,9 +47,13 @@ export async function crawlQuelle(quelleId: number): Promise<string> {
     text = stripTags(html)
   }
 
-  const lernziele = await prisma.lernziel.findMany({ select: { code: true, text: true } })
+  const teilgebiete = await prisma.teilgebiet.findMany({ include: { kompetenzen: true, lerngebiet: true } })
+  const optionen = teilgebiete.flatMap((tg) => [
+    { code: `T${tg.code}`, label: `${tg.lerngebiet.name} → ${tg.name} (gesamtes Teilgebiet)` },
+    ...tg.kompetenzen.map((ko) => ({ code: `K${ko.code}`, label: ko.text })),
+  ])
   const tags = await prisma.tag.findMany({ where: { status: 'AKTIV' }, select: { name: true } })
-  const k = await klassifiziere(text, lernziele, tags.map((t) => t.name))
+  const k = await klassifiziere(text, optionen, tags.map((t) => t.name))
 
   await prisma.quelle.update({
     where: { id: quelleId },
@@ -71,9 +75,21 @@ export async function crawlQuelle(quelleId: number): Promise<string> {
     update: { titel: k.titel, zusammenfassung: k.zusammenfassung, contentHash },
   })
 
-  const zielIds = await prisma.lernziel.findMany({ where: { code: { in: k.lernzielCodes } }, select: { id: true } })
-  await prisma.materialLernziel.deleteMany({ where: { materialId: material.id } })
-  await prisma.materialLernziel.createMany({ data: zielIds.map((z) => ({ materialId: material.id, lernzielId: z.id })) })
+  // Codes auflösen: "T1.2" → Teilgebiet, "K1.2.1" → Kompetenz (Teilgebiet immer mitschreiben)
+  const zuordnungen: { teilgebietId: number; kompetenzId: number | null }[] = []
+  for (const code of k.zuordnungen) {
+    if (code.startsWith('T')) {
+      const tg = teilgebiete.find((t) => t.code === code.slice(1))
+      if (tg) zuordnungen.push({ teilgebietId: tg.id, kompetenzId: null })
+    } else if (code.startsWith('K')) {
+      for (const tg of teilgebiete) {
+        const ko = tg.kompetenzen.find((x) => x.code === code.slice(1))
+        if (ko) zuordnungen.push({ teilgebietId: tg.id, kompetenzId: ko.id })
+      }
+    }
+  }
+  await prisma.materialZuordnung.deleteMany({ where: { materialId: material.id } })
+  await prisma.materialZuordnung.createMany({ data: zuordnungen.map((z) => ({ materialId: material.id, ...z })) })
 
   const tagIds = await prisma.tag.findMany({ where: { name: { in: k.tags } }, select: { id: true } })
   await prisma.materialTag.deleteMany({ where: { materialId: material.id } })
@@ -83,18 +99,19 @@ export async function crawlQuelle(quelleId: number): Promise<string> {
     await prisma.tag.upsert({ where: { name }, create: { name, status: 'VORSCHLAG' }, update: {} })
   }
 
-  return `ok (Score ${k.qualityScore}, ${zielIds.length} Lernziele, ${tagIds.length} Tags)`
+  return `ok (Score ${k.qualityScore}, ${zuordnungen.length} Zuordnungen, ${tagIds.length} Tags)`
 }
 
-// Nächtlicher Lauf: alle nicht endgültig toten Quellen. Aufruf: npm run crawl
-export async function crawlAlle() {
+// Nächtlicher Lauf: alle nicht endgültig toten Quellen.
+// Aufruf: npm run crawl [-- --force]  (--force: Änderungserkennung umgehen, alles neu klassifizieren)
+export async function crawlAlle(force = false) {
   const quellen = await prisma.quelle.findMany({ where: { todesCounter: { lt: TODES_SCHWELLE } } })
   for (const q of quellen) {
-    const resultat = await crawlQuelle(q.id)
+    const resultat = await crawlQuelle(q.id, force)
     console.log(`${q.url} → ${resultat}`)
   }
 }
 
 if (process.argv[1]?.endsWith('crawler.ts') || process.argv[1]?.endsWith('crawler.js')) {
-  crawlAlle().then(() => prisma.$disconnect())
+  crawlAlle(process.argv.includes('--force')).then(() => prisma.$disconnect())
 }

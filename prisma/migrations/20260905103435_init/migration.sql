@@ -26,12 +26,38 @@ CREATE TABLE "Quelle" (
 );
 
 -- CreateTable
-CREATE TABLE "Lernziel" (
+CREATE TABLE "Fach" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "code" TEXT NOT NULL,
-    "fach" TEXT NOT NULL,
-    "bereich" TEXT NOT NULL,
-    "text" TEXT NOT NULL
+    "name" TEXT NOT NULL,
+    "lehrplanUrl" TEXT
+);
+
+-- CreateTable
+CREATE TABLE "Lerngebiet" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "fachId" INTEGER NOT NULL,
+    "nummer" INTEGER NOT NULL,
+    "name" TEXT NOT NULL,
+    CONSTRAINT "Lerngebiet_fachId_fkey" FOREIGN KEY ("fachId") REFERENCES "Fach" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "Teilgebiet" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "lerngebietId" INTEGER NOT NULL,
+    "code" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    CONSTRAINT "Teilgebiet_lerngebietId_fkey" FOREIGN KEY ("lerngebietId") REFERENCES "Lerngebiet" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "Kompetenz" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "teilgebietId" INTEGER NOT NULL,
+    "code" TEXT NOT NULL,
+    "text" TEXT NOT NULL,
+    CONSTRAINT "Kompetenz_teilgebietId_fkey" FOREIGN KEY ("teilgebietId") REFERENCES "Teilgebiet" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -47,13 +73,14 @@ CREATE TABLE "Material" (
 );
 
 -- CreateTable
-CREATE TABLE "MaterialLernziel" (
+CREATE TABLE "MaterialZuordnung" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "materialId" INTEGER NOT NULL,
-    "lernzielId" INTEGER NOT NULL,
-
-    PRIMARY KEY ("materialId", "lernzielId"),
-    CONSTRAINT "MaterialLernziel_materialId_fkey" FOREIGN KEY ("materialId") REFERENCES "Material" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "MaterialLernziel_lernzielId_fkey" FOREIGN KEY ("lernzielId") REFERENCES "Lernziel" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    "teilgebietId" INTEGER NOT NULL,
+    "kompetenzId" INTEGER,
+    CONSTRAINT "MaterialZuordnung_materialId_fkey" FOREIGN KEY ("materialId") REFERENCES "Material" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "MaterialZuordnung_teilgebietId_fkey" FOREIGN KEY ("teilgebietId") REFERENCES "Teilgebiet" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "MaterialZuordnung_kompetenzId_fkey" FOREIGN KEY ("kompetenzId") REFERENCES "Kompetenz" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -100,7 +127,10 @@ CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 CREATE UNIQUE INDEX "Quelle_url_key" ON "Quelle"("url");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Lernziel_code_key" ON "Lernziel"("code");
+CREATE UNIQUE INDEX "Fach_code_key" ON "Fach"("code");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Lerngebiet_fachId_nummer_key" ON "Lerngebiet"("fachId", "nummer");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Material_url_key" ON "Material"("url");
