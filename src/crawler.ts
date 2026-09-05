@@ -274,13 +274,129 @@ async function crawlGit(quelle: { id: number; url: string; contentHash: string |
   return `1 Repo-Material (${mdDateien.length} md, ${texDateien.length} tex): ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.abgelehnt} abgelehnt${aufraeumen}`
 }
 
+// ---------- Cloud-Connector: Freigabelink → Ordner-Zip → Dateien als Materialien ----------
+// Anonyme Share-Links erlauben kein rclone (bräuchte OAuth pro Anbieter), aber OneDrive,
+// Dropbox und Nextcloud liefern den Ordner anonym als Zip. Google Drive kann das nicht → später.
+
+function cloudZipUrl(url: string): string {
+  const u = new URL(url)
+  const host = u.hostname.replace(/^www\./, '')
+  if (host === '1drv.ms' || host === 'onedrive.live.com') {
+    const b64 = Buffer.from(url).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_')
+    return `https://api.onedrive.com/v1.0/shares/u!${b64}/root/content`
+  }
+  if (host.endsWith('dropbox.com')) {
+    u.searchParams.set('dl', '1')
+    return u.toString()
+  }
+  if (/^\/s\/[^/]+\/?$/.test(u.pathname)) return `${u.origin}${u.pathname.replace(/\/$/, '')}/download`
+  throw new Error('Cloud-Anbieter noch nicht unterstützt (Google Drive folgt)')
+}
+
+const PYTHON = path.join(process.cwd(), '.venv', 'bin', 'python')
+
+function python(args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const p = spawn(PYTHON, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = ''
+    let err = ''
+    p.stdout.on('data', (d) => (out += d))
+    p.stderr.on('data', (d) => (err += d))
+    p.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(err.slice(0, 200)))))
+  })
+}
+
+// Entpacken mit Zip-Slip-Schutz (keine absoluten Pfade, kein "..")
+const UNZIP_PY = `
+import sys, zipfile, os
+z = zipfile.ZipFile(sys.argv[1]); out = sys.argv[2]
+for i in z.infolist():
+    n = i.filename
+    if n.endswith('/') or n.startswith('/') or '..' in n.split('/'): continue
+    d = os.path.join(out, n)
+    os.makedirs(os.path.dirname(d) or out, exist_ok=True)
+    open(d, 'wb').write(z.read(i))
+`
+
+function pdftotext(pfad: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const p = spawn('pdftotext', [pfad, '-'], { stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = ''
+    p.stdout.on('data', (d) => (out += d))
+    p.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`pdftotext exit ${code}`))))
+  })
+}
+
+async function dateiText(pfad: string): Promise<string | null> {
+  const ext = path.extname(pfad).toLowerCase()
+  try {
+    if (['.md', '.markdown', '.txt', '.tex'].includes(ext)) return await fs.readFile(pfad, 'utf8')
+    if (['.html', '.htm'].includes(ext)) {
+      const html = await fs.readFile(pfad, 'utf8')
+      try { return await extract(html) } catch { return stripTags(html) }
+    }
+    if (ext === '.pdf') return await pdftotext(pfad)
+    if (ext === '.docx' || ext === '.odt') {
+      const inner = ext === '.docx' ? 'word/document.xml' : 'content.xml'
+      const xml = await python(['-c', `import sys,zipfile;sys.stdout.write(zipfile.ZipFile(sys.argv[1]).read('${inner}').decode('utf8','ignore'))`, pfad])
+      return stripTags(xml.replace(/></g, '> <'))
+    }
+  } catch { return null }
+  return null
+}
+
+async function crawlCloud(quelle: { id: number; url: string; contentHash: string | null }, ctx: KlassifikationsKontext, force: boolean): Promise<string> {
+  const zipUrl = cloudZipUrl(quelle.url)
+  const res = await fetch(zipUrl, {
+    headers: { 'User-Agent': 'AtlasBot/0.1 (+https://atlas.eduskript.org)' },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(120000),
+  })
+  if (!res.ok) throw new Error(`Zip-Download HTTP ${res.status}`)
+  const buf = Buffer.from(await res.arrayBuffer())
+  if (buf.length > 200 * 1024 * 1024) throw new Error('Ordner grösser als 200 MB')
+
+  const dir = path.join(process.cwd(), 'data', 'cloud', String(quelle.id))
+  await fs.rm(dir, { recursive: true, force: true })
+  await fs.mkdir(dir, { recursive: true })
+  const zipPfad = `${dir}.zip`
+  await fs.writeFile(zipPfad, buf)
+  await python(['-c', UNZIP_PY, zipPfad, dir])
+  await fs.rm(zipPfad, { force: true })
+
+  const alle = (await fs.readdir(dir, { recursive: true })) as string[]
+  const dateien: string[] = []
+  for (const rel of alle) {
+    const stat = await fs.stat(path.join(dir, rel))
+    if (stat.isFile()) dateien.push(rel)
+  }
+  const gedeckelt = dateien.length > MAX_SEITEN
+
+  const stat = { neu: 0, aktualisiert: 0, unverändert: 0, abgelehnt: 0, übersprungen: 0, fehler: 0 }
+  const gesehen = new Set<string>()
+  for (const rel of dateien.slice(0, MAX_SEITEN)) {
+    try {
+      const text = await dateiText(path.join(dir, rel))
+      if (!text || text.trim().length < 50) { stat.übersprungen++; continue }
+      const url = `${quelle.url}#${rel}` // kein Deep-Link in anonyme Freigaben möglich — Fragment macht die URL eindeutig
+      gesehen.add(url)
+      stat[await verarbeiteMaterial(quelle.id, url, text, hash(text), ctx, force, true)]++
+    } catch { stat.fehler++ }
+  }
+  const aufraeumen = await raeumeAuf(quelle.id, gesehen, gedeckelt)
+  return `${dateien.length} Dateien${gedeckelt ? ` (gedeckelt, ${MAX_SEITEN}/Nacht)` : ''}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.übersprungen} übersprungen, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
+}
+
 // ---------- Einstieg ----------
 
 export async function crawlQuelle(quelleId: number, force = false): Promise<string> {
   const quelle = await prisma.quelle.findUniqueOrThrow({ where: { id: quelleId } })
   const ctx = await ladeKontext()
   try {
-    const resultat = quelle.typ === 'GIT' ? await crawlGit(quelle, ctx, force) : await crawlWebsite(quelle, ctx, force)
+    const resultat =
+      quelle.typ === 'GIT' ? await crawlGit(quelle, ctx, force)
+      : quelle.typ === 'CLOUD' ? await crawlCloud(quelle, ctx, force)
+      : await crawlWebsite(quelle, ctx, force)
     const maxScore = await prisma.material.aggregate({ where: { quelleId }, _max: { qualityScore: true } })
     const u = new URL(quelle.url)
     const titel = quelle.titel ?? (quelle.typ === 'GIT' ? u.pathname.replace(/^\/|\.git$/g, '') : u.hostname)

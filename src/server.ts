@@ -222,9 +222,9 @@ app.get('/melden', async (req, res) => {
   <p class="meta">Beispiel: <code>https://github.com/pro-kswe/netzwerke</code></p>
 </div>
 <div class="karte">
-  <h3>Cloud-Ordner <span class="meta">(in Arbeit)</span></h3>
-  <p style="margin:.2rem 0">Freigegebene Ordner aus OneDrive, Google Drive oder Dropbox. Bei OneDrive: Ordner → <em>Teilen</em> → «Jeder mit dem Link kann anzeigen» → Link kopieren und hier einfügen.</p>
-  <p class="meta">Beispiel: <code>https://1drv.ms/f/…</code> — Unterstützung folgt, Links werden aber schon entgegengenommen.</p>
+  <h3>Cloud-Ordner</h3>
+  <p style="margin:.2rem 0">Freigegebene Ordner aus OneDrive, Dropbox oder Nextcloud — Atlas liest die Dateien darin (PDF, Word, Markdown, …). Bei OneDrive: Ordner → <em>Teilen</em> → «Jeder mit dem Link kann anzeigen» → Link kopieren und hier einfügen. Google Drive wird noch nicht unterstützt.</p>
+  <p class="meta">Beispiel: <code>https://1drv.ms/f/…</code></p>
 </div>`
   res.send(layout('Quelle melden', side, body, user))
 })
@@ -244,6 +244,11 @@ app.post('/melden', async (req, res) => {
     const u = new URL(url)
     const host = u.hostname.replace(/^www\./, '')
     const segmente = u.pathname.split('/').filter(Boolean)
+    if (host === 'drive.google.com') {
+      return res.send(layout('Noch nicht unterstützt', side, `<h1>Google Drive noch nicht unterstützt</h1>
+<p>Google Drive erlaubt keinen anonymen Ordner-Download — wir arbeiten daran. Unterstützt sind OneDrive, Dropbox und Nextcloud-Freigabelinks.</p>
+<p><a href="/melden">Zurück</a></p>`, user))
+    }
     if (['github.com', 'gitlab.com', 'codeberg.org'].includes(host) && segmente.length < 2) {
       return res.send(layout('Bitte einzelne Repos melden', side, `<h1>Bitte einzelne Repos melden</h1>
 <p>Das ist eine Profilseite (<code>${esc(host)}/${esc(segmente[0] ?? '')}</code>). Atlas fügt bewusst nicht automatisch alle Repos einer Person hinzu — melde stattdessen die einzelnen Repos, die Unterrichtsmaterial enthalten (z.B. <code>${esc(host)}/${esc(segmente[0] ?? 'user')}/mein-skript</code>).</p>
