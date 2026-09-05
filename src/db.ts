@@ -43,7 +43,7 @@ export function erkenneTyp(url: string): 'WEBSITE' | 'GIT' | 'CLOUD' {
   const u = new URL(url)
   const host = u.hostname.replace(/^www\./, '')
   if (url.endsWith('.git') || ['github.com', 'gitlab.com', 'codeberg.org'].includes(host)) return 'GIT'
-  if (['dropbox.com', '1drv.ms', 'onedrive.live.com'].includes(host)) return 'CLOUD'
+  if (['dropbox.com', '1drv.ms', 'onedrive.live.com'].includes(host) || host.endsWith('.sharepoint.com')) return 'CLOUD'
   if (/^\/s\/[^/]+\/?$/.test(u.pathname)) return 'CLOUD' // Nextcloud/ownCloud-Freigabelink
   return 'WEBSITE'
 }

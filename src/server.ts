@@ -223,7 +223,7 @@ app.get('/melden', async (req, res) => {
 </div>
 <div class="karte">
   <h3>Cloud-Ordner</h3>
-  <p style="margin:.2rem 0">Freigegebene Ordner aus OneDrive, Dropbox oder Nextcloud — Atlas liest die Dateien darin (PDF, Word, Markdown, …). Bei OneDrive: Ordner → <em>Teilen</em> → «Jeder mit dem Link kann anzeigen» → Link kopieren und hier einfügen. Google Drive wird noch nicht unterstützt.</p>
+  <p style="margin:.2rem 0">Freigegebene Ordner aus OneDrive/SharePoint (auch Schul-Konten), Dropbox oder Nextcloud — Atlas liest die Dateien darin (PDF, Word, PowerPoint, Markdown, …; Videos nur nach Dateiname). Im Ordner: <em>Teilen</em> → «Jeder mit dem Link kann anzeigen» → Link kopieren und hier einfügen. Google Drive wird noch nicht unterstützt.</p>
   <p class="meta">Beispiel: <code>https://1drv.ms/f/…</code></p>
 </div>`
   res.send(layout('Quelle melden', side, body, user))

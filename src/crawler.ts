@@ -282,7 +282,9 @@ async function crawlGit(quelle: { id: number; url: string; contentHash: string |
 const CLOUD_BUDGET = 500 * 1024 * 1024 // Download-Budget pro Quelle und Nacht (OneDrive/Nextcloud)
 const CLOUD_DATEI_MAX = 50 * 1024 * 1024 // Einzeldatei-Limit
 const DROPBOX_ZIP_MAX = 200 * 1024 * 1024 // Zip ist alles-oder-nichts
-const CLOUD_EXTS = ['.md', '.markdown', '.txt', '.tex', '.html', '.htm', '.pdf', '.docx', '.odt']
+const CLOUD_EXTS = ['.md', '.markdown', '.txt', '.tex', '.html', '.htm', '.pdf', '.docx', '.odt', '.pptx']
+// Videos: kein Download/Transkript (zu teuer für den VPS) — Dateiname+Pfad reichen der AI für eine Grob-Zuordnung
+const VIDEO_EXTS = ['.mp4', '.m4v', '.mov', '.webm', '.mkv', '.avi']
 
 interface CloudDatei {
   pfad: string // relativ, z.B. "unterordner/blatt.pdf"
@@ -337,6 +339,13 @@ async function dateiText(pfad: string): Promise<string | null> {
     if (ext === '.docx' || ext === '.odt') {
       const inner = ext === '.docx' ? 'word/document.xml' : 'content.xml'
       const xml = await python(['-c', `import sys,zipfile;sys.stdout.write(zipfile.ZipFile(sys.argv[1]).read('${inner}').decode('utf8','ignore'))`, pfad])
+      return stripTags(xml.replace(/></g, '> <'))
+    }
+    if (ext === '.pptx') {
+      const xml = await python(['-c', `import sys,zipfile,re
+z=zipfile.ZipFile(sys.argv[1])
+ns=sorted(n for n in z.namelist() if re.match(r'ppt/slides/slide\\d+\\.xml$',n))
+sys.stdout.write('\\n'.join(z.read(n).decode('utf8','ignore') for n in ns))`, pfad])
       return stripTags(xml.replace(/></g, '> <'))
     }
   } catch { return null }
@@ -419,6 +428,70 @@ async function listeNextcloud(shareUrl: string): Promise<CloudDatei[]> {
   return dateien
 }
 
+// SharePoint/OneDrive Business (*.sharepoint.com): der Aufruf eines anonymen Freigabelinks
+// setzt ein FedAuth-Cookie; damit funktioniert die SharePoint-REST-API (Listing mit ETags,
+// Einzeldownloads). Das ist der Standardfall für Schulen (M365).
+async function holeSharePointZugang(shareUrl: string): Promise<{ cookie: string; ordnerPfad: string; origin: string }> {
+  let url = shareUrl
+  const cookies: string[] = []
+  let ordnerPfad = ''
+  for (let hop = 0; hop < 6; hop++) {
+    const res = await fetch(url, {
+      redirect: 'manual',
+      headers: { 'User-Agent': 'AtlasBot/0.1 (+https://atlas.eduskript.org)', ...(cookies.length ? { Cookie: cookies.join('; ') } : {}) },
+      signal: AbortSignal.timeout(30000),
+    })
+    for (const sc of res.headers.getSetCookie()) cookies.push(sc.split(';')[0])
+    const loc = res.headers.get('location')
+    if (res.status >= 300 && res.status < 400 && loc) {
+      url = new URL(loc, url).toString()
+      const id = new URL(url).searchParams.get('id')
+      if (id) ordnerPfad = id
+      continue
+    }
+    break
+  }
+  if (!cookies.some((c) => c.startsWith('FedAuth'))) throw new Error('SharePoint: anonymer Zugriff verweigert (Link auf «Jeder mit dem Link» gestellt?)')
+  if (!ordnerPfad) throw new Error('SharePoint: Ordnerpfad nicht ermittelbar')
+  return { cookie: cookies.join('; '), ordnerPfad, origin: new URL(url).origin }
+}
+
+async function listeSharePoint(shareUrl: string): Promise<CloudDatei[]> {
+  const { cookie, ordnerPfad, origin } = await holeSharePointZugang(shareUrl)
+  // Site-Basis = erste zwei Pfadsegmente (/personal/<user> bzw. /sites/<name>)
+  const siteBasis = ordnerPfad.split('/').filter(Boolean).slice(0, 2).join('/')
+  const api = `${origin}/${siteBasis}/_api/web`
+  const hdr = { Cookie: cookie, Accept: 'application/json' }
+  const dateien: CloudDatei[] = []
+  async function rekursiv(pfad: string) {
+    const enc = encodeURIComponent(pfad)
+    const fRes = await cloudFetch(`${api}/GetFolderByServerRelativeUrl('${enc}')/Files?$select=Name,Length,ServerRelativeUrl,ETag`, hdr)
+    if (!fRes.ok) throw new Error(`SharePoint-Listing HTTP ${fRes.status}`)
+    const files = (await fRes.json()) as { value: { Name: string; Length: string; ServerRelativeUrl: string; ETag: string }[] }
+    for (const f of files.value) {
+      dateien.push({
+        pfad: f.ServerRelativeUrl.slice(ordnerPfad.length + 1),
+        sig: `${f.ETag}:${f.Length}`,
+        groesse: Number(f.Length),
+        laden: async () => {
+          const r = await cloudFetch(`${origin}${encodeURI(f.ServerRelativeUrl)}`, { Cookie: cookie })
+          if (!r.ok) throw new Error(`SharePoint-Download HTTP ${r.status}`)
+          return Buffer.from(await r.arrayBuffer())
+        },
+      })
+    }
+    const oRes = await cloudFetch(`${api}/GetFolderByServerRelativeUrl('${enc}')/Folders?$select=Name,ServerRelativeUrl`, hdr)
+    if (!oRes.ok) return
+    const ordner = (await oRes.json()) as { value: { Name: string; ServerRelativeUrl: string }[] }
+    for (const o of ordner.value) {
+      if (o.Name === 'Forms') continue // SharePoint-Systemordner
+      await rekursiv(o.ServerRelativeUrl)
+    }
+  }
+  await rekursiv(ordnerPfad)
+  return dateien
+}
+
 // Dropbox: kein anonymes Listing — Ordner-Zip (alles-oder-nichts, darum harter Deckel).
 async function listeDropboxZip(shareUrl: string, quelleId: number): Promise<CloudDatei[]> {
   const u = new URL(shareUrl)
@@ -450,9 +523,11 @@ async function crawlCloud(quelle: { id: number; url: string; etag: string | null
   const istDropbox = host.endsWith('dropbox.com')
   const dateien = istDropbox
     ? await listeDropboxZip(quelle.url, quelle.id)
-    : host === '1drv.ms' || host === 'onedrive.live.com'
-      ? await listeOneDrive(quelle.url)
-      : await listeNextcloud(quelle.url)
+    : host.endsWith('.sharepoint.com')
+      ? await listeSharePoint(quelle.url)
+      : host === '1drv.ms' || host === 'onedrive.live.com'
+        ? await listeOneDrive(quelle.url)
+        : await listeNextcloud(quelle.url)
 
   // Signaturen der letzten Nacht (Quelle.etag als JSON-Map pfad→sig)
   let sigs: Record<string, string> = {}
@@ -464,12 +539,20 @@ async function crawlCloud(quelle: { id: number; url: string; etag: string | null
   let budget = CLOUD_BUDGET
   let relevante = 0
   for (const d of dateien) {
-    if (!CLOUD_EXTS.includes(path.extname(d.pfad).toLowerCase()) || d.groesse > CLOUD_DATEI_MAX) { stat.übersprungen++; continue }
+    const ext = path.extname(d.pfad).toLowerCase()
+    const istVideo = VIDEO_EXTS.includes(ext)
+    if ((!CLOUD_EXTS.includes(ext) && !istVideo) || (!istVideo && d.groesse > CLOUD_DATEI_MAX)) { stat.übersprungen++; continue }
     if (++relevante > MAX_SEITEN) break
     const url = `${quelle.url}#${d.pfad}` // kein Deep-Link in anonyme Freigaben möglich — Fragment macht die URL eindeutig
     gesehen.add(url)
     neueSigs[d.pfad] = d.sig
     if (sigs[d.pfad] === d.sig && !force) { stat.unverändert++; continue }
+    if (istVideo) {
+      // Nur Metadaten — die AI ordnet nach Dateiname/Ordnerpfad zu
+      const text = `Videodatei aus einem Unterrichtsordner (kein Transkript verfügbar — nur nach Dateiname und Ordnerpfad beurteilen):\nDatei: ${d.pfad}\nGrösse: ${Math.round(d.groesse / 1024 / 1024)} MB`
+      try { stat[await verarbeiteMaterial(quelle.id, url, text, hash(d.sig + d.pfad), ctx, force, true)]++ } catch { stat.fehler++ }
+      continue
+    }
     if (d.groesse > budget) { stat.fehler++; continue } // Budget erschöpft — Rest in der nächsten Nacht
     budget -= d.groesse
     try {
