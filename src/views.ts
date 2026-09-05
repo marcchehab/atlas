@@ -121,6 +121,55 @@ ${tg.kompetenzen
 </div>`
 }
 
+// Eigenständige zentrierte Login-Seite im Eduskript-Stil (Card, Microsoft-Button, Divider, E-Mail).
+export function loginSeite(opts: { microsoft: boolean; weiter: string; hinweis?: string }): string {
+  const msIcon = `<svg style="width:20px;height:20px;margin-right:.5rem" viewBox="0 0 23 23" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 0h10.87v10.87H0z" fill="#f25022"/><path d="M12.13 0H23v10.87H12.13z" fill="#7fba00"/><path d="M0 12.13h10.87V23H0z" fill="#00a4ef"/><path d="M12.13 12.13H23V23H12.13z" fill="#ffb900"/></svg>`
+  return `<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anmelden – Atlas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root { --primary: hsl(221.2 83.2% 53.3%); --bg: #f5f5f5; --fg: #262626; --rand: #e4e4e4; --meta: #737373; }
+  * { box-sizing: border-box; }
+  body { font-family: Inter, system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--fg); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+  .card { background: #fff; border: 1px solid var(--rand); border-radius: 12px; padding: 2rem; width: 100%; max-width: 26rem; box-shadow: 0 1px 3px rgb(0 0 0 / .06); }
+  .kopf { display: flex; align-items: center; justify-content: center; margin-bottom: 1.2rem; }
+  .kopf img { width: 160px; }
+  h1 { font-family: 'Barlow Condensed', sans-serif; font-size: 1.6rem; text-align: center; margin: 0 0 .3rem; }
+  .sub { text-align: center; color: var(--meta); font-size: .9rem; margin: 0 0 1.5rem; }
+  .btn { display: flex; align-items: center; justify-content: center; width: 100%; padding: .6rem 1rem; border-radius: 8px; font: inherit; font-weight: 500; cursor: pointer; text-decoration: none; }
+  .btn.ms { background: #fff; color: var(--fg); border: 1px solid var(--rand); }
+  .btn.ms:hover { background: var(--bg); }
+  .btn.primaer { background: var(--primary); color: #fff; border: none; margin-top: .6rem; }
+  .divider { display: flex; align-items: center; gap: .8rem; margin: 1.4rem 0; color: var(--meta); font-size: .75rem; text-transform: uppercase; }
+  .divider::before, .divider::after { content: ''; flex: 1; border-top: 1px solid var(--rand); }
+  input[type=email] { width: 100%; padding: .6rem .8rem; border: 1px solid var(--rand); border-radius: 8px; font: inherit; }
+  .hinweis { background: #eef7ee; border: 1px solid #bfe3bf; border-radius: 8px; padding: .5rem .8rem; font-size: .85rem; margin-bottom: 1rem; }
+  .fuss { text-align: center; margin-top: 1.4rem; font-size: .8rem; } .fuss a { color: var(--meta); text-decoration: none; } .fuss a:hover { color: var(--fg); }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="kopf"><a href="/"><img src="/logo.svg" alt="Atlas by Eduskript"></a></div>
+  <h1>Anmelden</h1>
+  <p class="sub">Zum Melden und Bewerten von Materialien</p>
+  ${opts.hinweis ? `<div class="hinweis">${esc(opts.hinweis)}</div>` : ''}
+  ${opts.microsoft ? `<a class="btn ms" href="/auth/microsoft?weiter=${esc(opts.weiter)}">${msIcon}Mit Microsoft anmelden</a>
+  <div class="divider">oder per E-Mail</div>` : ''}
+  <form method="post" action="/auth/magic">
+    <input type="hidden" name="weiter" value="${esc(opts.weiter)}">
+    <input type="email" name="email" required placeholder="E-Mail-Adresse">
+    <button class="btn primaer">Anmelde-Link senden</button>
+  </form>
+  <div class="fuss"><a href="/">← Zurück zu Atlas</a></div>
+</div>
+</body></html>`
+}
+
 export interface MaterialKarte {
   id: number
   titel: string

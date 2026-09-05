@@ -4,7 +4,7 @@ import path from 'node:path'
 import { prisma, initDb, normalizeUrl, erkenneTyp } from './db.js'
 import { crawlQuelle } from './crawler.js'
 import * as auth from './auth.js'
-import { layout, esc, kürze, sidebar, materialKarte, voteButtons, MaterialKarte } from './views.js'
+import { layout, esc, kürze, sidebar, materialKarte, voteButtons, loginSeite, MaterialKarte } from './views.js'
 
 const app = express()
 const SECRET = process.env.SESSION_SECRET ?? 'dev'
@@ -260,17 +260,8 @@ async function userFuerEmail(email: string, name?: string): Promise<number> {
   return user.id
 }
 
-app.get('/login', async (req, res) => {
-  const side = await baueSidebar(STANDARD_FACH, undefined, null)
-  const weiter = esc(String(req.query.weiter ?? '/'))
-  const body = `<h1>Anmelden</h1>
-${auth.microsoftKonfiguriert() ? `<p><a href="/auth/microsoft?weiter=${weiter}"><button>Mit Microsoft anmelden</button></a></p><p class="meta">Schul- oder privates Microsoft-Konto.</p><hr>` : ''}
-<p>Oder per E-Mail — wir schicken dir einen Anmelde-Link:</p>
-<form method="post" action="/auth/magic">
-  <input type="hidden" name="weiter" value="${weiter}">
-  <p><input type="email" name="email" required placeholder="E-Mail"> <button>Link senden</button></p>
-</form>`
-  res.send(layout('Anmelden', side, body, null))
+app.get('/login', (req, res) => {
+  res.send(loginSeite({ microsoft: auth.microsoftKonfiguriert(), weiter: String(req.query.weiter ?? '/') }))
 })
 
 app.get('/auth/microsoft', (req, res) => {
