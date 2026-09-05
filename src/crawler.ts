@@ -1,88 +1,71 @@
 import crypto from 'node:crypto'
+import { spawn } from 'node:child_process'
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import { prisma } from './db.js'
 import { extract, stripTags } from './extract.js'
-import { klassifiziere } from './ai.js'
+import { klassifiziere, ZuordnungsOption } from './ai.js'
 
 const TODES_SCHWELLE = 3
+const MAX_SEITEN = 40 // Deckel pro Quelle und Nacht — Rest kommt in späteren Läufen
 
-// Prototyp: eine Quelle = eine Seite = ein Material. Sitemap-/Git-/Cloud-Spidering kommt später.
-export async function crawlQuelle(quelleId: number, force = false): Promise<string> {
-  const quelle = await prisma.quelle.findUniqueOrThrow({ where: { id: quelleId } })
+const hash = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
 
-  let html: string
-  let etag: string | null = null
-  try {
-    const res = await fetch(quelle.url, {
-      headers: {
-        'User-Agent': 'AtlasBot/0.1 (+https://atlas.eduskript.org)',
-        ...(quelle.etag && !force ? { 'If-None-Match': quelle.etag } : {}),
-      },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(20000),
-    })
-    if (res.status === 304) {
-      await prisma.quelle.update({ where: { id: quelleId }, data: { todesCounter: 0, lastCrawledAt: new Date() } })
-      return 'unverändert (ETag)'
-    }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    etag = res.headers.get('etag')
-    html = await res.text()
-  } catch (e) {
-    const neu = quelle.todesCounter + 1
-    await prisma.quelle.update({ where: { id: quelleId }, data: { todesCounter: neu } })
-    // TODO: bei Erreichen der Schwelle Mail an Melder:in (Infomaniak-SMTP)
-    return `Fehler (${(e as Error).message}) — Todescounter ${neu}${neu >= TODES_SCHWELLE ? ', Quelle ausgeblendet' : ''}`
-  }
+function fetchSeite(url: string): Promise<Response> {
+  return fetch(url, {
+    headers: { 'User-Agent': 'AtlasBot/0.1 (+https://atlas.eduskript.org)' },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(20000),
+  })
+}
 
-  const contentHash = crypto.createHash('sha256').update(html).digest('hex')
-  if (contentHash === quelle.contentHash && !force) {
-    await prisma.quelle.update({ where: { id: quelleId }, data: { todesCounter: 0, lastCrawledAt: new Date() } })
-    return 'unverändert (Hash)'
-  }
+interface KlassifikationsKontext {
+  optionen: ZuordnungsOption[]
+  tagNamen: string[]
+  teilgebiete: Awaited<ReturnType<typeof ladeKontext>>['teilgebiete']
+}
 
-  let text: string
-  try {
-    text = await extract(html)
-  } catch {
-    text = stripTags(html)
-  }
-
+async function ladeKontext() {
   const teilgebiete = await prisma.teilgebiet.findMany({ include: { kompetenzen: true, lerngebiet: true } })
   const optionen = teilgebiete.flatMap((tg) => [
     { code: `T${tg.code}`, label: `${tg.lerngebiet.name} → ${tg.name} (gesamtes Teilgebiet)` },
     ...tg.kompetenzen.map((ko) => ({ code: `K${ko.code}`, label: ko.text })),
   ])
   const tags = await prisma.tag.findMany({ where: { status: 'AKTIV' }, select: { name: true } })
-  const k = await klassifiziere(text, optionen, tags.map((t) => t.name))
+  return { optionen, tagNamen: tags.map((t) => t.name), teilgebiete }
+}
 
-  await prisma.quelle.update({
-    where: { id: quelleId },
-    data: {
-      todesCounter: 0,
-      lastCrawledAt: new Date(),
-      etag,
-      contentHash,
-      qualityScore: k.qualityScore,
-      titel: quelle.titel ?? k.titel,
-    },
-  })
+// Ein Text (Seite oder Datei) → Klassifikation → Material mit Zuordnungen/Tags.
+async function verarbeiteMaterial(
+  quelleId: number,
+  url: string,
+  text: string,
+  contentHash: string,
+  ctx: KlassifikationsKontext,
+  force = false
+): Promise<'neu' | 'aktualisiert' | 'unverändert' | 'abgelehnt'> {
+  const vorhanden = await prisma.material.findUnique({ where: { url } })
+  if (vorhanden && vorhanden.contentHash === contentHash && !force) return 'unverändert'
 
-  if (k.qualityScore < 20) return `abgelehnt (Score ${k.qualityScore})`
+  const k = await klassifiziere(text, ctx.optionen, ctx.tagNamen)
+  if (k.qualityScore < 20) {
+    if (vorhanden) await prisma.material.delete({ where: { url } }) // war mal gut, ist jetzt Schrott
+    return 'abgelehnt'
+  }
 
   const material = await prisma.material.upsert({
-    where: { url: quelle.url },
-    create: { url: quelle.url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, contentHash },
-    update: { titel: k.titel, zusammenfassung: k.zusammenfassung, contentHash },
+    where: { url },
+    create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, contentHash },
+    update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, contentHash },
   })
 
-  // Codes auflösen: "T1.2" → Teilgebiet, "K1.2.1" → Kompetenz (Teilgebiet immer mitschreiben)
   const zuordnungen: { teilgebietId: number; kompetenzId: number | null }[] = []
   for (const code of k.zuordnungen) {
     if (code.startsWith('T')) {
-      const tg = teilgebiete.find((t) => t.code === code.slice(1))
+      const tg = ctx.teilgebiete.find((t) => t.code === code.slice(1))
       if (tg) zuordnungen.push({ teilgebietId: tg.id, kompetenzId: null })
     } else if (code.startsWith('K')) {
-      for (const tg of teilgebiete) {
+      for (const tg of ctx.teilgebiete) {
         const ko = tg.kompetenzen.find((x) => x.code === code.slice(1))
         if (ko) zuordnungen.push({ teilgebietId: tg.id, kompetenzId: ko.id })
       }
@@ -98,8 +81,163 @@ export async function crawlQuelle(quelleId: number, force = false): Promise<stri
   for (const name of k.neueTagVorschlaege.slice(0, 2)) {
     await prisma.tag.upsert({ where: { name }, create: { name, status: 'VORSCHLAG' }, update: {} })
   }
+  return vorhanden ? 'aktualisiert' : 'neu'
+}
 
-  return `ok (Score ${k.qualityScore}, ${zuordnungen.length} Zuordnungen, ${tagIds.length} Tags)`
+// ---------- Website-Connector: Sitemap bevorzugt, sonst Links der Startseite ----------
+
+const BINAER = /\.(pdf|zip|png|jpe?g|gif|svg|ico|css|js|mp[34]|webm|woff2?|xml|txt)(\?|$)/i
+
+function sammleUrls(quelleUrl: string, html: string): string[] {
+  const basis = new URL(quelleUrl)
+  const urls = new Set<string>()
+  for (const m of html.matchAll(/href="([^"#]+)"/g)) {
+    try {
+      const u = new URL(m[1], quelleUrl)
+      if (u.hostname !== basis.hostname || BINAER.test(u.pathname)) continue
+      u.hash = ''
+      u.search = ''
+      urls.add(u.toString())
+    } catch { /* kaputte hrefs ignorieren */ }
+  }
+  return [...urls]
+}
+
+async function ladeSitemap(origin: string): Promise<string[] | null> {
+  try {
+    const res = await fetchSeite(`${origin}/sitemap.xml`)
+    if (!res.ok) return null
+    let xml = await res.text()
+    // Sitemap-Index: erste Kind-Sitemaps nachladen
+    if (xml.includes('<sitemapindex')) {
+      const kinder = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]).slice(0, 5)
+      const teile = await Promise.all(
+        kinder.map((u) => fetchSeite(u.trim()).then((r) => (r.ok ? r.text() : '')).catch(() => ''))
+      )
+      xml = teile.join('\n')
+    }
+    const urls = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1].trim())
+    return urls.length ? urls : null
+  } catch {
+    return null
+  }
+}
+
+async function crawlWebsite(quelle: { id: number; url: string }, ctx: KlassifikationsKontext, force: boolean): Promise<string> {
+  const startRes = await fetchSeite(quelle.url)
+  if (!startRes.ok) throw new Error(`HTTP ${startRes.status}`)
+  const startHtml = await startRes.text()
+
+  const origin = new URL(quelle.url).origin
+  const sitemap = await ladeSitemap(origin)
+  let urls = sitemap ?? [quelle.url, ...sammleUrls(quelle.url, startHtml)]
+  urls = urls.filter((u) => {
+    try {
+      const p = new URL(u)
+      return p.hostname === new URL(quelle.url).hostname && !BINAER.test(p.pathname)
+    } catch { return false }
+  })
+  const gedeckelt = urls.length > MAX_SEITEN
+  if (gedeckelt) urls = urls.slice(0, MAX_SEITEN)
+
+  const stat = { neu: 0, aktualisiert: 0, unverändert: 0, abgelehnt: 0, fehler: 0 }
+  for (const url of urls) {
+    try {
+      const res = url === quelle.url ? null : await fetchSeite(url)
+      const html = res ? (res.ok ? await res.text() : null) : startHtml
+      if (html == null) { stat.fehler++; continue }
+      const h = hash(html)
+      if (!force) {
+        const vorhanden = await prisma.material.findUnique({ where: { url } })
+        if (vorhanden && vorhanden.contentHash === h) { stat.unverändert++; continue }
+      }
+      let text: string
+      try { text = await extract(html) } catch { text = stripTags(html) }
+      stat[await verarbeiteMaterial(quelle.id, url, text, h, ctx, force)]++
+    } catch { stat.fehler++ }
+  }
+  return `${urls.length} Seiten${gedeckelt ? ` (gedeckelt, ${MAX_SEITEN}/Nacht)` : ''} via ${sitemap ? 'Sitemap' : 'Links'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler`
+}
+
+// ---------- Git-Connector: Repo klonen, Markdown-Dateien als Materialien ----------
+
+function git(args: string[], cwd?: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const p = spawn('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = ''
+    let err = ''
+    p.stdout.on('data', (d) => (out += d))
+    p.stderr.on('data', (d) => (err += d))
+    p.on('close', (code) => (code === 0 ? resolve(out.trim()) : reject(new Error(err.slice(0, 200)))))
+  })
+}
+
+async function crawlGit(quelle: { id: number; url: string; contentHash: string | null }, ctx: KlassifikationsKontext, force: boolean): Promise<string> {
+  const dir = path.join(process.cwd(), 'data', 'git', String(quelle.id))
+  const existiert = await fs.access(path.join(dir, '.git')).then(() => true, () => false)
+  if (existiert) await git(['pull', '--ff-only'], dir)
+  else {
+    await fs.mkdir(dir, { recursive: true })
+    await git(['clone', '--depth', '1', quelle.url, dir])
+  }
+  const head = await git(['rev-parse', 'HEAD'], dir)
+  if (head === quelle.contentHash && !force) return 'unverändert (HEAD)'
+
+  const mdDateien = (await git(['ls-files', '*.md', '*.markdown'], dir)).split('\n').filter(Boolean)
+  const stat = { neu: 0, aktualisiert: 0, unverändert: 0, abgelehnt: 0, fehler: 0 }
+
+  if (mdDateien.length >= 3) {
+    // Markdown-Sammlung: jede Datei ein Material
+    for (const datei of mdDateien.slice(0, MAX_SEITEN)) {
+      try {
+        const text = await fs.readFile(path.join(dir, datei), 'utf8')
+        const url = `${quelle.url.replace(/\.git$/, '')}/blob/HEAD/${datei}` // GitHub/GitLab-kompatibel
+        stat[await verarbeiteMaterial(quelle.id, url, text, hash(text), ctx, force)]++
+      } catch { stat.fehler++ }
+    }
+    await prisma.quelle.update({ where: { id: quelle.id }, data: { contentHash: head } })
+    return `${Math.min(mdDateien.length, MAX_SEITEN)} Markdown-Dateien: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler`
+  }
+
+  // Sonst (z.B. LaTeX-Skript): ganzes Repo als ein Material, Text aus README + .tex/.md
+  const texDateien = (await git(['ls-files', '*.tex'], dir)).split('\n').filter(Boolean)
+  const teile: string[] = []
+  for (const datei of [...mdDateien, ...texDateien]) {
+    try { teile.push(await fs.readFile(path.join(dir, datei), 'utf8')) } catch { /* Binärdatei o.ä. */ }
+  }
+  const text = teile
+    .join('\n\n')
+    .replace(/(?<!\\)%.*$/gm, '') // LaTeX-Kommentare
+    .replace(/\\[a-zA-Z]+\*?(\[[^\]]*\])?/g, ' ') // \Befehle
+    .replace(/[{}]/g, '')
+    .slice(0, 120000)
+  const url = quelle.url.replace(/\.git$/, '')
+  stat[await verarbeiteMaterial(quelle.id, url, text, hash(text), ctx, force)]++
+  await prisma.quelle.update({ where: { id: quelle.id }, data: { contentHash: head } })
+  return `1 Repo-Material (${mdDateien.length} md, ${texDateien.length} tex): ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.abgelehnt} abgelehnt`
+}
+
+// ---------- Einstieg ----------
+
+export async function crawlQuelle(quelleId: number, force = false): Promise<string> {
+  const quelle = await prisma.quelle.findUniqueOrThrow({ where: { id: quelleId } })
+  const ctx = await ladeKontext()
+  try {
+    const resultat = quelle.typ === 'GIT' ? await crawlGit(quelle, ctx, force) : await crawlWebsite(quelle, ctx, force)
+    const maxScore = await prisma.material.aggregate({ where: { quelleId }, _max: { qualityScore: true } })
+    const u = new URL(quelle.url)
+    const titel = quelle.titel ?? (quelle.typ === 'GIT' ? u.pathname.replace(/^\/|\.git$/g, '') : u.hostname)
+    await prisma.quelle.update({
+      where: { id: quelleId },
+      data: { todesCounter: 0, lastCrawledAt: new Date(), qualityScore: maxScore._max.qualityScore ?? 0, titel },
+    })
+    return resultat
+  } catch (e) {
+    const neu = quelle.todesCounter + 1
+    await prisma.quelle.update({ where: { id: quelleId }, data: { todesCounter: neu } })
+    // TODO: bei Erreichen der Schwelle Mail an Melder:in (Infomaniak-SMTP)
+    return `Fehler (${(e as Error).message}) — Todescounter ${neu}${neu >= TODES_SCHWELLE ? ', Quelle ausgeblendet' : ''}`
+  }
 }
 
 // Nächtlicher Lauf: alle nicht endgültig toten Quellen.

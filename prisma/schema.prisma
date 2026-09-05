@@ -84,6 +84,7 @@ model Material {
   url            String             @unique
   titel          String
   zusammenfassung String
+  qualityScore   Int? // pro Material — eine Quelle kann gute und schwache Seiten enthalten
   contentHash    String?
   createdAt      DateTime           @default(now())
   zuordnungen    MaterialZuordnung[]
