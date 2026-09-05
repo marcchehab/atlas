@@ -67,13 +67,28 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
     document.querySelectorAll('.fkat').forEach((el) => el.classList.toggle('offen', el.dataset.k === k))
   }
   function wendeFilterAn() {
-    const q = fltr('quellen'), t = fltr('tags'), fo = fltr('format')
-    document.querySelectorAll('.karte[data-quelle]').forEach((el) => {
-      const tagsOk = !t.length || (el.dataset.tags || '').split(' ').some((x) => t.includes(x))
-      const ok = (!q.length || q.includes(el.dataset.quelle)) && tagsOk && (!fo.length || fo.includes(el.dataset.format || ''))
-      el.style.display = ok ? '' : 'none'
+    const f = { quellen: fltr('quellen'), tags: fltr('tags'), format: fltr('format') }
+    const karten = [...document.querySelectorAll('.karte[data-quelle]')].map((el) => ({
+      el,
+      quellen: el.dataset.quelle,
+      tags: (el.dataset.tags || '').split(' ').filter(Boolean),
+      format: el.dataset.format || '',
+    }))
+    const passt = (k, kat) =>
+      kat === 'quellen' ? (!f.quellen.length || f.quellen.includes(k.quellen))
+      : kat === 'tags' ? (!f.tags.length || k.tags.some((x) => f.tags.includes(x)))
+      : (!f.format.length || f.format.includes(k.format))
+    karten.forEach((k) => { k.el.style.display = passt(k, 'quellen') && passt(k, 'tags') && passt(k, 'format') ? '' : 'none' })
+    // Chip-Zahlen: wie viele Karten dieser Chip (unter den Filtern der anderen Kategorien) zeigen würde
+    document.querySelectorAll('.qchip[data-fk]').forEach((c) => {
+      const kat = c.dataset.fk, v = c.dataset.q
+      const hat = (k) => (kat === 'quellen' ? k.quellen === v : kat === 'tags' ? k.tags.includes(v) : k.format === v)
+      const andere = ['quellen', 'tags', 'format'].filter((x) => x !== kat)
+      const n = karten.filter((k) => hat(k) && andere.every((x) => passt(k, x))).length
+      const z = c.querySelector('.chipzahl')
+      if (z) z.textContent = n
+      c.classList.toggle('aktiv', f[kat].includes(v))
     })
-    document.querySelectorAll('.qchip').forEach((c) => c.classList.toggle('aktiv', fltr(c.dataset.fk).includes(c.dataset.q)))
     document.querySelectorAll('.fkat').forEach((el) => el.classList.toggle('mit-punkt', fltr(el.dataset.k).length > 0))
   }
   function filterReset() { for (const k of ['quellen', 'tags', 'format']) localStorage.setItem('f-' + k, '[]'); wendeFilterAn() }
@@ -143,6 +158,8 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
   .fkat.offen { color: var(--fg); font-weight: 600; }
   .fkat svg { transition: transform .15s; }
   .fkat.offen svg { transform: rotate(90deg); }
+  .chipzahl { font-size: .68rem; opacity: .6; margin-left: .3rem; }
+  .qchip.aktiv .chipzahl { opacity: .85; }
   .freset { font-size: .72rem; opacity: .6; margin-left: .3rem; }
   .freset:hover { opacity: 1; }
   .fkat .punkt { display: none; width: 7px; height: 7px; border-radius: 50%; background: var(--primary); }
@@ -437,7 +454,7 @@ ${kategorien.map(([k, name]) => `<button class="fkat" data-k="${k}" onclick="fka
 ${kategorien
   .map(
     ([k, , werte]) => `<div class="fchips" data-k="${k}">
-${werte.map((w) => `<button class="qchip" data-fk="${k}" data-q="${esc(w)}" onclick="fltrToggle('${k}','${esc(w)}')">${esc(w)}</button>`).join('')}
+${werte.map((w) => `<button class="qchip" data-fk="${k}" data-q="${esc(w)}" onclick="fltrToggle('${k}','${esc(w)}')">${esc(w)}<span class="chipzahl"></span></button>`).join('')}
 ${k === 'tags' ? vorschlaege.map((v) => tagVorschlagChip(v, eingeloggt)).join('') : ''}
 </div>`
   )

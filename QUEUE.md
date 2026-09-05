@@ -4,7 +4,7 @@
 
 ## To do (von oben nach unten, jeweils zu doing kopieren)
 
-- such gute kontakte+emails zu den aktuell genutzten quelle raus und schreib sie in ~/Documents/0_inbox/atlaskontakt.md
+- in den quellen, tags und format pills klein die aktuelle anzahl (muss sich natürilch anpassen wenn filter ändert)
 - Admin-UI: Lehrplan pro Fach erfassen/ändern
 
 ## Probably never
