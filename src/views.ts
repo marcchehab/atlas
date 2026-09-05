@@ -30,7 +30,9 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
   aside { width: 300px; flex-shrink: 0; background: #fff; border-right: 1px solid var(--rand); padding: 1rem; overflow-y: auto; position: sticky; top: 0; height: 100vh; }
   main { flex: 1; padding: 1.5rem 2rem; max-width: 56rem; }
 
-  aside .logo { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 1.5rem; color: var(--primary); display: block; margin-bottom: .2rem; }
+  aside .logo { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 1.5rem; color: var(--primary); }
+  aside .by { font-family: Inter, sans-serif; font-size: 11px; color: rgb(115 115 115 / .4); margin-left: .3rem; }
+  aside .by:hover { color: var(--meta); text-decoration: none; }
   aside .untertitel { font-size: .75rem; color: var(--meta); margin-bottom: 1rem; }
   aside select { width: 100%; padding: .4rem; font: inherit; border: 1px solid var(--rand); border-radius: 6px; background: #fff; margin-bottom: 1rem; }
   .lg { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: .95rem; margin: .9rem 0 .2rem; }
@@ -88,7 +90,7 @@ export interface SidebarDaten {
 
 export function sidebar(d: SidebarDaten): string {
   const basis = `/fach/${d.fachCode}`
-  return `<a class="logo" href="${basis}">Atlas</a>
+  return `<div style="margin-bottom:.2rem"><a class="logo" href="${basis}">Atlas</a><a class="by" href="https://eduskript.org" target="_blank" rel="noopener">by Eduskript</a></div>
 <div class="untertitel">Unterrichtsmaterialien Schweizer Gymnasien</div>
 <select onchange="location='/fach/'+this.value">
 ${d.faecher.map((f) => `<option value="${esc(f.code)}"${f.code === d.fachCode ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}
