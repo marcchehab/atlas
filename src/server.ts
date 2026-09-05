@@ -113,7 +113,8 @@ async function filterDaten(userId: number | null): Promise<[string[], string[], 
     formate.map((f) => f.format!).sort(),
     vorschlaege
       .map((v) => ({ id: v.id, name: v.name, votes: v.votes.length, meinVote: userId != null && v.votes.some((x) => x.userId === userId) }))
-      .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name)),
+      .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name))
+      .slice(0, 5), // mehr Vorschläge überfordern die Leiste — Rest wartet im Admin
   ]
 }
 
