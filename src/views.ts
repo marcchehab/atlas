@@ -50,8 +50,11 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
   .meta { font-size: .8rem; color: var(--meta); }
   .tag { display: inline-block; background: #eef3fa; border-radius: 999px; padding: .05rem .6rem; font-size: .78rem; margin-right: .3rem; color: var(--primary); }
   .tag.ziel { background: #f3eefa; }
-  .upvote { border: 1px solid var(--rand); border-radius: 8px; background: #fff; cursor: pointer; padding: .25rem .7rem; font-size: .9rem; font-family: inherit; }
-  .upvote.aktiv { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .voten { display: flex; flex-direction: column; align-items: center; gap: .1rem; }
+  .voten .pfeil { border: 1px solid var(--rand); border-radius: 8px; background: #fff; color: var(--fg); cursor: pointer; padding: .1rem .55rem; font-size: .85rem; line-height: 1.3; font-family: inherit; }
+  .voten .pfeil:hover { background: var(--bg); text-decoration: none; }
+  .voten .pfeil.aktiv { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .voten .score { font-weight: 600; font-size: .95rem; }
   form.suche { display: flex; gap: .5rem; margin-bottom: 1.2rem; }
   form.suche input[type=search] { flex: 1; padding: .5rem .7rem; border: 1px solid var(--rand); border-radius: 8px; font: inherit; }
   input, select, button { font: inherit; }
@@ -124,13 +127,19 @@ export interface MaterialKarte {
   zusammenfassung: string
   tags: string[]
   zuordnungen: { code: string; label: string; href: string }[]
-  upvotes: number
-  meinUpvote: boolean
+  score: number
+  meinVote: number // +1 | 0 | -1
 }
 
-export function upvoteButton(m: { id: number; upvotes: number; meinUpvote: boolean }, eingeloggt: boolean): string {
-  if (!eingeloggt) return `<a class="upvote" href="/login" title="Zum Upvoten anmelden">▲ ${m.upvotes}</a>`
-  return `<button class="upvote${m.meinUpvote ? ' aktiv' : ''}" hx-post="/upvote/${m.id}" hx-swap="outerHTML">▲ ${m.upvotes}</button>`
+// Stack-Overflow-Stil: ▲ / Score / ▼ vertikal, getrennte Buttons.
+export function voteButtons(m: { id: number; score: number; meinVote: number }, eingeloggt: boolean): string {
+  if (!eingeloggt)
+    return `<div class="voten"><a class="pfeil" href="/login" title="Zum Voten anmelden">▲</a><span class="score">${m.score}</span><a class="pfeil" href="/login" title="Zum Voten anmelden">▼</a></div>`
+  return `<div class="voten">
+  <button class="pfeil${m.meinVote > 0 ? ' aktiv' : ''}" hx-post="/vote/${m.id}/up" hx-target="closest .voten" hx-swap="outerHTML" title="Upvote">▲</button>
+  <span class="score">${m.score}</span>
+  <button class="pfeil${m.meinVote < 0 ? ' aktiv' : ''}" hx-post="/vote/${m.id}/down" hx-target="closest .voten" hx-swap="outerHTML" title="Downvote">▼</button>
+</div>`
 }
 
 export function materialKarte(m: MaterialKarte, eingeloggt: boolean): string {
@@ -142,7 +151,7 @@ export function materialKarte(m: MaterialKarte, eingeloggt: boolean): string {
       <div>${m.tags.map((t) => `<a class="tag" href="/suche?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}
       ${m.zuordnungen.map((z) => `<a class="tag ziel" href="${z.href}" title="${esc(z.label)}">${esc(z.code)}</a>`).join('')}</div>
     </div>
-    ${upvoteButton(m, eingeloggt)}
+    ${voteButtons(m, eingeloggt)}
   </div>
 </div>`
 }

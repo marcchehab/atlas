@@ -126,6 +126,7 @@ model Upvote {
   userId     Int
   material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
   materialId Int
+  wert       Int      @default(1) // +1 Upvote, -1 Downvote
 
   @@id([userId, materialId])
 }

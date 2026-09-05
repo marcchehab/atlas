@@ -3,7 +3,7 @@ import cookieParser from 'cookie-parser'
 import path from 'node:path'
 import { prisma, initDb, normalizeUrl, erkenneTyp } from './db.js'
 import { crawlQuelle } from './crawler.js'
-import { layout, esc, kürze, sidebar, materialKarte, upvoteButton, MaterialKarte } from './views.js'
+import { layout, esc, kürze, sidebar, materialKarte, voteButtons, MaterialKarte } from './views.js'
 
 const app = express()
 const SECRET = process.env.SESSION_SECRET ?? 'dev'
@@ -68,7 +68,6 @@ async function ladeMaterialKarten(where: object, userId: number | null, fachCode
       tags: { include: { tag: true } },
       zuordnungen: { include: { teilgebiet: true, kompetenz: true } },
       upvotes: true,
-      quelle: { select: { qualityScore: true } },
     },
   })
   return mats
@@ -83,12 +82,12 @@ async function ladeMaterialKarten(where: object, userId: number | null, fachCode
           ? { code: z.kompetenz.code, label: z.kompetenz.text, href: `/fach/${fachCode}/k/${z.kompetenz.code}` }
           : { code: `${z.teilgebiet.code} (ganz)`, label: z.teilgebiet.name, href: `/fach/${fachCode}/t/${z.teilgebiet.code}` }
       ),
-      upvotes: m.upvotes.length,
-      meinUpvote: userId != null && m.upvotes.some((u) => u.userId === userId),
-      score: m.quelle.qualityScore ?? 0,
+      score: m.upvotes.reduce((s, u) => s + u.wert, 0),
+      meinVote: m.upvotes.find((u) => u.userId === userId)?.wert ?? 0,
+      aiScore: m.qualityScore ?? 0,
     }))
-    // Ranking: Upvotes zuerst, AI-Score nur als Initial-Ranking dahinter
-    .sort((a, b) => b.upvotes - a.upvotes || b.score - a.score)
+    // Ranking: Community-Votes zuerst, AI-Score nur als Initial-Ranking dahinter
+    .sort((a, b) => b.score - a.score || b.aiScore - a.aiScore)
 }
 
 app.get('/', (_req, res) => res.redirect(`/fach/${STANDARD_FACH}`))
@@ -224,17 +223,24 @@ ${quellen
   res.send(layout('Quellen', side, body, user))
 })
 
-// Upvote-Toggle (HTMX)
-app.post('/upvote/:id', async (req, res) => {
+// Vote (HTMX): gleicher Pfeil nochmal = zurückziehen, anderer Pfeil = wechseln
+app.post('/vote/:id/:richtung', async (req, res) => {
   const user = await aktuellerUser(req)
   if (!user) return res.status(401).send('')
   const materialId = Number(req.params.id)
+  const wert = req.params.richtung === 'down' ? -1 : 1
   const key = { userId_materialId: { userId: user.id, materialId } }
   const vorhanden = await prisma.upvote.findUnique({ where: key })
-  if (vorhanden) await prisma.upvote.delete({ where: key })
-  else await prisma.upvote.create({ data: { userId: user.id, materialId } })
-  const n = await prisma.upvote.count({ where: { materialId } })
-  res.send(upvoteButton({ id: materialId, upvotes: n, meinUpvote: !vorhanden }, true))
+  let meinVote: number
+  if (vorhanden?.wert === wert) {
+    await prisma.upvote.delete({ where: key })
+    meinVote = 0
+  } else {
+    await prisma.upvote.upsert({ where: key, create: { userId: user.id, materialId, wert }, update: { wert } })
+    meinVote = wert
+  }
+  const agg = await prisma.upvote.aggregate({ where: { materialId }, _sum: { wert: true } })
+  res.send(voteButtons({ id: materialId, score: agg._sum.wert ?? 0, meinVote }, true))
 })
 
 // Auth-Stub: Nickname + E-Mail. TODO produktiv: better-auth (Microsoft OAuth + Magic-Link).
