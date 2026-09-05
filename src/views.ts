@@ -1,6 +1,16 @@
 // Server-rendered HTML als Template-Strings — bewusst ohne Template-Engine.
 // Look angelehnt an Eduskript: Inter (UI), Barlow Condensed (Headings), #f5f5f5, Primärblau.
 
+import fsSync from 'node:fs'
+import pathMod from 'node:path'
+
+// Logo inline statt <img>: so folgt es dem manuellen Theme-Toggle (data-theme) statt nur
+// dem System-Schema. Der <style>-Block der Datei (prefers-color-scheme, fürs README) fliegt
+// raus — die Seite stylt die Klassen selbst über ihre Theme-Variablen.
+const LOGO_INLINE = fsSync
+  .readFileSync(pathMod.join(process.cwd(), 'public', 'logo.svg'), 'utf8')
+  .replace(/<style>[\s\S]*?<\/style>/, '')
+
 export function esc(s: unknown): string {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
 }
@@ -57,7 +67,9 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
   body { font-family: Inter, system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--fg); line-height: 1.5; }
   h1, h2, h3 { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; letter-spacing: .01em; }
   a { color: var(--primary); text-decoration: none; } a:hover { text-decoration: underline; }
-  [data-theme="dark"] .logo-img { filter: invert(1) hue-rotate(180deg); }
+  .logo-svg svg { width: 100%; height: auto; display: block; }
+  .logo-svg .mark-bg { fill: var(--bg); } .logo-svg .mark { stroke: var(--meta); }
+  .logo-svg .wort { fill: var(--fg); } .logo-svg .sub { fill: var(--meta); }
 
   .app { display: flex; min-height: 100vh; }
   aside { width: 300px; flex-shrink: 0; background: var(--card); border-right: 1px solid var(--rand); padding: 1rem; overflow-y: auto; position: sticky; top: 0; height: 100vh; }
@@ -147,7 +159,7 @@ export function sidebar(d: SidebarDaten): string {
   const person = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`
   const login = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>`
   const plus = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>`
-  return `<a href="${basis}"><img class="logo-img" src="/logo.svg" alt="Atlas by Eduskript" style="width:170px;display:block;margin:0 auto .3rem"></a>
+  return `<a href="${basis}" class="logo-svg" aria-label="Atlas" style="width:170px;display:block;margin:0 auto .3rem">${LOGO_INLINE}</a>
 <div class="untertitel" style="text-align:center">Unterrichtsmaterialien Schweizer Gymnasien</div>
 <div class="pillbar">
   <div class="pill">
@@ -202,7 +214,9 @@ export function loginSeite(opts: { microsoft: boolean; weiter: string; hinweis?:
   body { font-family: Inter, system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--fg); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1rem; }
   .card { background: #fff; border: 1px solid var(--rand); border-radius: 12px; padding: 2rem; width: 100%; max-width: 26rem; box-shadow: 0 1px 3px rgb(0 0 0 / .06); }
   .kopf { display: flex; align-items: center; justify-content: center; margin-bottom: 1.2rem; }
-  .kopf img { width: 160px; }
+  .logo-svg svg { width: 100%; height: auto; display: block; }
+  .logo-svg .mark-bg { fill: var(--bg); } .logo-svg .mark { stroke: var(--meta); }
+  .logo-svg .wort { fill: var(--fg); } .logo-svg .sub { fill: var(--meta); }
   h1 { font-family: 'Barlow Condensed', sans-serif; font-size: 1.6rem; text-align: center; margin: 0 0 .3rem; }
   .sub { text-align: center; color: var(--meta); font-size: .9rem; margin: 0 0 1.5rem; }
   .btn { display: flex; align-items: center; justify-content: center; width: 100%; padding: .6rem 1rem; border-radius: 8px; font: inherit; font-weight: 500; cursor: pointer; text-decoration: none; }
@@ -218,7 +232,7 @@ export function loginSeite(opts: { microsoft: boolean; weiter: string; hinweis?:
 </head>
 <body>
 <div class="card">
-  <div class="kopf"><a href="/"><img src="/logo.svg" alt="Atlas by Eduskript"></a></div>
+  <div class="kopf"><a href="/" class="logo-svg" style="width:160px;display:block">${LOGO_INLINE}</a></div>
   <h1>Anmelden</h1>
   <p class="sub">Zum Melden und Bewerten von Materialien</p>
   ${opts.hinweis ? `<div class="hinweis">${esc(opts.hinweis)}</div>` : ''}
