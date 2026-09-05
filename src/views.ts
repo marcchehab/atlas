@@ -238,7 +238,7 @@ export function voteButtons(m: { id: number; score: number; meinVote: number }, 
 }
 
 // Quelle als Kurz-Label: github.com/**user**, sonst **hostname**
-function quellenLabel(url: string): string {
+export function quellenLabel(url: string): string {
   try {
     const u = new URL(url)
     const host = u.hostname.replace(/^www\./, '')

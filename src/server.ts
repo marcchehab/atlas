@@ -216,14 +216,31 @@ app.get('/quellen', async (req, res) => {
   const user = await aktuellerUser(req)
   const side = await baueSidebar(STANDARD_FACH, undefined, user)
   const quellen = await prisma.quelle.findMany({ orderBy: { createdAt: 'desc' }, include: { melder: true, _count: { select: { materialien: true } } } })
+  // Gruppierung: github.com/<user> bzw. Hostname — mehrere Repos eines Users erscheinen als eine Gruppe
+  const gruppen = new Map<string, typeof quellen>()
+  for (const q of quellen) {
+    let key: string
+    try {
+      const u = new URL(q.url)
+      const host = u.hostname.replace(/^www\./, '')
+      key = ['github.com', 'gitlab.com', 'codeberg.org'].includes(host) ? `${host}/${u.pathname.split('/')[1] ?? ''}` : host
+    } catch { key = q.url }
+    if (!gruppen.has(key)) gruppen.set(key, [])
+    gruppen.get(key)!.push(q)
+  }
+  const zeile = (q: (typeof quellen)[0]) =>
+    `<tr><td><a href="${esc(q.url)}" rel="noopener">${esc(kürze(q.titel ?? q.url, 60))}</a></td><td>${esc(q.typ)}</td><td>${q.qualityScore ?? '–'}</td><td>${q.todesCounter}</td><td>${q._count.materialien}</td><td>${esc(q.melder.nickname)}</td></tr>`
   const body = `<h1>Quellen</h1>
+${[...gruppen.entries()]
+  .map(([key, qs]) => {
+    const mats = qs.reduce((s, q) => s + q._count.materialien, 0)
+    return `<details ${qs.length === 1 ? '' : 'open'} style="margin-bottom:.6rem">
+<summary style="cursor:pointer;padding:.3rem 0"><strong>${esc(key)}</strong> <span class="meta">${qs.length} ${qs.length === 1 ? 'Quelle' : 'Quellen'} · ${mats} Materialien</span></summary>
 <table><tr><th>URL</th><th>Typ</th><th>Score</th><th>☠</th><th>Materialien</th><th>Melder:in</th></tr>
-${quellen
-  .map(
-    (q) =>
-      `<tr><td><a href="${esc(q.url)}" rel="noopener">${esc(kürze(q.titel ?? q.url, 60))}</a></td><td>${esc(q.typ)}</td><td>${q.qualityScore ?? '–'}</td><td>${q.todesCounter}</td><td>${q._count.materialien}</td><td>${esc(q.melder.nickname)}</td></tr>`
-  )
-  .join('\n')}</table>`
+${qs.map(zeile).join('\n')}</table>
+</details>`
+  })
+  .join('\n')}`
   res.send(layout('Quellen', side, body, user))
 })
 
