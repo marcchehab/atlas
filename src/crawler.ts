@@ -7,6 +7,7 @@ import { extract, stripTags } from './extract.js'
 import { klassifiziere, ZuordnungsOption } from './ai.js'
 import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
+import { syncEduskriptVerzeichnis } from './verzeichnis.js'
 
 const TODES_SCHWELLE = 3
 const MAX_SEITEN = 200 // Deckel pro Quelle und Nacht — Rest kommt in späteren Läufen
@@ -194,13 +195,19 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
 
   const origin = new URL(quelle.url).origin
   const host = new URL(quelle.url).hostname
+  // Quellen mit Pfad (eduskript.org/evh, swisseduc.ch/informatik) bleiben auf ihrem
+  // Präfix — sonst zieht die Origin-Sitemap die ganze Domain herein.
+  const basisPfad = new URL(quelle.url).pathname.replace(/\/$/, '')
   const passt = (u: string) => {
     try {
       const p = new URL(u)
-      return p.hostname === host && !BINAER.test(p.pathname)
+      if (p.hostname !== host || BINAER.test(p.pathname)) return false
+      return basisPfad === '' || p.pathname === basisPfad || p.pathname.startsWith(basisPfad + '/')
     } catch { return false }
   }
-  const sitemap = await ladeSitemap(origin)
+  let sitemap = await ladeSitemap(origin)
+  // Origin-Sitemap ohne Treffer unterhalb des Pfad-Präfixes (z.B. eduskript.org/evh) → spidern
+  if (sitemap && !sitemap.some(passt)) sitemap = null
   // Ohne Sitemap: rekursiv spidern (BFS) — Links jeder besuchten Seite kommen in die Queue
   const queue = (sitemap ?? [quelle.url]).filter(passt)
   const geplant = new Set(queue)
@@ -671,6 +678,11 @@ export async function crawlQuelle(quelleId: number, force = false, sammelLauf = 
 // Nächtlicher Lauf: alle nicht endgültig toten Quellen.
 // Aufruf: npm run crawl [-- --force]  (--force: Änderungserkennung umgehen, alles neu klassifizieren)
 export async function crawlAlle(force = false) {
+  try {
+    console.log(await syncEduskriptVerzeichnis())
+  } catch (e) {
+    console.error('Verzeichnis-Sync fehlgeschlagen:', (e as Error).message)
+  }
   const quellen = await prisma.quelle.findMany({ where: { todesCounter: { lt: TODES_SCHWELLE } } })
   for (const q of quellen) {
     const resultat = await crawlQuelle(q.id, force, true)

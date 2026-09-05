@@ -13,6 +13,8 @@
 
 ## Done
 
+- Eduskript-Verzeichnis-Sync (sites.json → Quellen, Opt-out drüben; Pfad-Scoping + Sitemap-Fallback im Spider)
+
 - in den quellen, tags und format pills klein die aktuelle anzahl (muss sich natürilch anpassen wenn filter ändert)
 - Nickname ändern können
 - Favicon (Globus-Bildmarke, darkmode-fähig)
