@@ -209,7 +209,23 @@ app.get('/melden', async (req, res) => {
   <p><input type="url" name="url" required placeholder="https://…" style="width:100%"></p>
   <p><select name="fach"><option value="">Fach (optional)</option>${faecher.map((f) => `<option value="${esc(f.code)}"${f.code === vorausgewaehlt ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select></p>
   <p><button>Melden</button></p>
-</form>`
+</form>
+<h2>Was kann gemeldet werden?</h2>
+<div class="karte">
+  <h3>Websites</h3>
+  <p style="margin:.2rem 0">Deine Material-Website oder ein einzelner Kurs darauf. Atlas findet die Unterseiten selbst (Sitemap oder Links) und hält sie aktuell.</p>
+  <p class="meta">Beispiel: <code>https://oinf.ch/</code></p>
+</div>
+<div class="karte">
+  <h3>Git-Repositories</h3>
+  <p style="margin:.2rem 0">Öffentliche Repos von GitHub, GitLab oder Codeberg — z.B. ein Skript als Markdown oder LaTeX. Bitte einzelne Repos melden, nicht die Profilseite.</p>
+  <p class="meta">Beispiel: <code>https://github.com/pro-kswe/netzwerke</code></p>
+</div>
+<div class="karte">
+  <h3>Cloud-Ordner <span class="meta">(in Arbeit)</span></h3>
+  <p style="margin:.2rem 0">Freigegebene Ordner aus OneDrive, Google Drive oder Dropbox. Bei OneDrive: Ordner → <em>Teilen</em> → «Jeder mit dem Link kann anzeigen» → Link kopieren und hier einfügen.</p>
+  <p class="meta">Beispiel: <code>https://1drv.ms/f/…</code> — Unterstützung folgt, Links werden aber schon entgegengenommen.</p>
+</div>`
   res.send(layout('Quelle melden', side, body, user))
 })
 
