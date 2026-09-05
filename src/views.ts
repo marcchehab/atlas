@@ -93,8 +93,8 @@ export interface SidebarDaten {
 
 export function sidebar(d: SidebarDaten): string {
   const basis = `/fach/${d.fachCode}`
-  return `<a href="${basis}"><img src="/logo.svg" alt="Atlas by Eduskript" style="width:170px;display:block;margin:0 0 .3rem -6px"></a>
-<div class="untertitel">Unterrichtsmaterialien Schweizer Gymnasien</div>
+  return `<a href="${basis}"><img src="/logo.svg" alt="Atlas by Eduskript" style="width:170px;display:block;margin:0 auto .3rem"></a>
+<div class="untertitel" style="text-align:center">Unterrichtsmaterialien Schweizer Gymnasien</div>
 <select onchange="location='/fach/'+this.value">
 ${d.faecher.map((f) => `<option value="${esc(f.code)}"${f.code === d.fachCode ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}
 </select>
