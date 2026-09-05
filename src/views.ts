@@ -93,7 +93,7 @@ export interface SidebarDaten {
 
 export function sidebar(d: SidebarDaten): string {
   const basis = `/fach/${d.fachCode}`
-  return `<div style="margin-bottom:.2rem"><a class="logo" href="${basis}">Atlas</a><a class="by" href="https://eduskript.org" target="_blank" rel="noopener">by Eduskript</a></div>
+  return `<a href="${basis}"><img src="/logo.svg" alt="Atlas by Eduskript" style="width:170px;display:block;margin:0 0 .3rem -6px"></a>
 <div class="untertitel">Unterrichtsmaterialien Schweizer Gymnasien</div>
 <select onchange="location='/fach/'+this.value">
 ${d.faecher.map((f) => `<option value="${esc(f.code)}"${f.code === d.fachCode ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}
@@ -113,6 +113,7 @@ ${tg.kompetenzen
   .join('\n')}
 <div class="fuss">
   ${d.lehrplanUrl ? `<a href="${esc(d.lehrplanUrl)}" rel="noopener">Lehrplan (Original-PDF)</a>` : ''}
+  <a href="https://eduskript.org" target="_blank" rel="noopener">eduskript.org</a>
   <a href="/suche">Suche</a>
   <a href="/melden">Quelle melden</a>
   <a href="/quellen">Quellen</a>
