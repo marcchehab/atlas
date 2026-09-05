@@ -344,11 +344,8 @@ app.get('/quelle/:id/status/fragment', async (req, res) => {
   res.send(await crawlStatusFragment(Number(req.params.id)))
 })
 
-app.get('/quellen', async (req, res) => {
-  const user = await aktuellerUser(req)
-  const side = await baueSidebar(STANDARD_FACH, undefined, user)
+async function quellenListe(user: Nutzer | null): Promise<string> {
   const quellen = await prisma.quelle.findMany({ orderBy: { createdAt: 'desc' }, include: { melder: true, _count: { select: { materialien: true } } } })
-  // Gruppierung: github.com/<user> bzw. Hostname — mehrere Repos eines Users erscheinen als eine Gruppe
   const gruppen = new Map<string, typeof quellen>()
   for (const q of quellen) {
     let key: string
@@ -360,13 +357,14 @@ app.get('/quellen', async (req, res) => {
     if (!gruppen.has(key)) gruppen.set(key, [])
     gruppen.get(key)!.push(q)
   }
+  const muell = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>'
   const zeile = (q: (typeof quellen)[0]) =>
     `<tr><td><a href="${esc(q.url)}" rel="noopener">${esc(kürze(q.titel ?? q.url, 60))}</a></td><td>${esc(q.typ)}</td><td>${q.qualityScore ?? '–'}</td><td>${q.todesCounter}</td><td>${q._count.materialien}</td><td>${esc(q.melder.nickname)}</td>${
       user && (user.istAdmin || q.melderId === user.id)
-        ? `<td><form hx-post="/quelle/${q.id}/loeschen" hx-target="closest tr" hx-swap="outerHTML" hx-confirm="Quelle samt ${q._count.materialien} Materialien und Votes löschen?"><button class="btn-loeschen" title="Quelle löschen"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button></form></td>`
+        ? `<td><form hx-post="/quelle/${q.id}/loeschen" hx-target="#quellen-liste" hx-swap="outerHTML" hx-confirm="Quelle samt ${q._count.materialien} Materialien und Votes löschen?"><button class="btn-loeschen" title="Quelle löschen">${muell}</button></form></td>`
         : ''
     }</tr>`
-  const body = `<h1>Quellen</h1>
+  return `<div id="quellen-liste">
 ${[...gruppen.entries()]
   .map(([key, qs]) => {
     const mats = qs.reduce((s, q) => s + q._count.materialien, 0)
@@ -376,7 +374,15 @@ ${[...gruppen.entries()]
 ${qs.map(zeile).join('\n')}</table>
 </details>`
   })
-  .join('\n')}`
+  .join('\n')}
+</div>`
+}
+
+app.get('/quellen', async (req, res) => {
+  const user = await aktuellerUser(req)
+  const side = await baueSidebar(STANDARD_FACH, undefined, user)
+  const body = `<h1>Quellen</h1>
+${await quellenListe(user)}`
   res.send(layout('Quellen', side, body, user))
 })
 
@@ -411,7 +417,7 @@ app.post('/quelle/:id/loeschen', async (req, res) => {
   if (!user.istAdmin && quelle.melderId !== user.id) return res.status(403).send('Nur eigene Quellen.')
   await prisma.quelle.delete({ where: { id } })
   await fs.rm(path.join(process.cwd(), 'data', 'git', String(id)), { recursive: true, force: true })
-  if (req.headers['hx-request']) return res.send('')
+  if (req.headers['hx-request']) return res.send(await quellenListe(user))
   res.redirect('/quellen')
 })
 
