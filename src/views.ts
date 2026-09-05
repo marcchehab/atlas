@@ -76,6 +76,7 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
     document.querySelectorAll('.qchip').forEach((c) => c.classList.toggle('aktiv', fltr(c.dataset.fk).includes(c.dataset.q)))
     document.querySelectorAll('.fkat').forEach((el) => el.classList.toggle('mit-punkt', fltr(el.dataset.k).length > 0))
   }
+  function filterReset() { for (const k of ['quellen', 'tags', 'format']) localStorage.setItem('f-' + k, '[]'); wendeFilterAn() }
   document.addEventListener('DOMContentLoaded', () => { zeigeFilterTab(); wendeFilterAn() })
   function nicknameAendern(aktuell) {
     const d = document.getElementById('nick-dialog')
@@ -142,6 +143,8 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
   .fkat.offen { color: var(--fg); font-weight: 600; }
   .fkat svg { transition: transform .15s; }
   .fkat.offen svg { transform: rotate(90deg); }
+  .freset { font-size: .72rem; opacity: .6; margin-left: .3rem; }
+  .freset:hover { opacity: 1; }
   .fkat .punkt { display: none; width: 7px; height: 7px; border-radius: 50%; background: var(--primary); }
   .fkat.mit-punkt .punkt { display: inline-block; }
   .fchips { display: none; align-items: center; gap: .4rem; flex-wrap: wrap; }
@@ -429,6 +432,7 @@ export function filterLeiste(quellen: string[], tags: string[], formate: string[
   return `<div class="qfilter">
 <div class="fkats">
 ${kategorien.map(([k, name]) => `<button class="fkat" data-k="${k}" onclick="fkatWaehlen('${k}')">${chevron}${name}<span class="punkt"></span></button>`).join('')}
+<button class="fkat freset" onclick="filterReset()" title="Alle Filter zurücksetzen">reset</button>
 </div>
 ${kategorien
   .map(

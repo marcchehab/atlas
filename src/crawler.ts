@@ -181,25 +181,47 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   const startHtml = await startRes.text()
 
   const origin = new URL(quelle.url).origin
-  const sitemap = await ladeSitemap(origin)
-  let urls = sitemap ?? [quelle.url, ...sammleUrls(quelle.url, startHtml)]
-  urls = urls.filter((u) => {
+  const host = new URL(quelle.url).hostname
+  const passt = (u: string) => {
     try {
       const p = new URL(u)
-      return p.hostname === new URL(quelle.url).hostname && !BINAER.test(p.pathname)
+      return p.hostname === host && !BINAER.test(p.pathname)
     } catch { return false }
-  })
-  const gedeckelt = urls.length > MAX_SEITEN
-  if (gedeckelt) urls = urls.slice(0, MAX_SEITEN)
+  }
+  const sitemap = await ladeSitemap(origin)
+  // Ohne Sitemap: rekursiv spidern (BFS) — Links jeder besuchten Seite kommen in die Queue
+  const queue = (sitemap ?? [quelle.url]).filter(passt)
+  const geplant = new Set(queue)
+  let besucht = 0
 
   const stat = { neu: 0, aktualisiert: 0, unverändert: 0, abgelehnt: 0, duplikat: 0, fehler: 0 }
   const gesehen = new Set<string>()
-  for (const url of urls) {
+  // Deckel zählt AI-Verarbeitungen (Kosten); Besuche sind billig und haben nur ein Sicherheitslimit
+  const verarbeitet = () => stat.neu + stat.aktualisiert + stat.abgelehnt
+  while (queue.length && besucht < 1000 && verarbeitet() < MAX_SEITEN) {
+    const url = queue.shift()!
+    besucht++
     try {
-      const res = url === quelle.url ? null : await fetchSeite(url)
+      let res = url === quelle.url ? null : await fetchSeite(url)
+      let effektiveUrl = url
+      // VitePress & Co. mit cleanUrls: Links enden auf .html, Seiten liegen ohne Endung
+      if (res && !res.ok && url.endsWith('.html')) {
+        const ohne = url.slice(0, -5)
+        const retry = await fetchSeite(ohne)
+        if (retry.ok) { res = retry; effektiveUrl = ohne }
+      }
       const html = res ? (res.ok ? await res.text() : null) : startHtml
-      if (html == null) { stat.fehler++; continue }
-      gesehen.add(url)
+      if (html == null) {
+        stat.fehler++
+        if (stat.fehler <= 8) console.error(`Crawl-Fehler ${url}: HTTP ${res?.status}`)
+        continue
+      }
+      if (!sitemap) {
+        for (const l of sammleUrls(effektiveUrl, html)) {
+          if (passt(l) && !geplant.has(l)) { geplant.add(l); queue.push(l) }
+        }
+      }
+      gesehen.add(effektiveUrl)
       // Hash über den extrahierten Text, nicht das rohe HTML: stabil gegen kosmetische
       // HTML-Änderungen und Grundlage der Duplikat-Erkennung (SPAs liefern auf jeder
       // URL dasselbe serverseitige Gerüst — z.B. Eduskript-Sites, solange deren
@@ -207,19 +229,23 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
       let text: string
       try { text = await extract(html) } catch { text = stripTags(html) }
       const h = hash(text)
-      const vorhanden = await prisma.material.findUnique({ where: { url } })
+      const vorhanden = await prisma.material.findUnique({ where: { url: effektiveUrl } })
       if (vorhanden && vorhanden.contentHash === h && !force) { stat.unverändert++; continue }
-      const dupe = await prisma.material.findFirst({ where: { quelleId: quelle.id, contentHash: h, url: { not: url } } })
+      const dupe = await prisma.material.findFirst({ where: { quelleId: quelle.id, contentHash: h, url: { not: effektiveUrl } } })
       if (dupe) {
-        if (vorhanden) await prisma.material.delete({ where: { url } })
+        if (vorhanden) await prisma.material.delete({ where: { url: effektiveUrl } })
         stat.duplikat++
         continue
       }
-      stat[await verarbeiteMaterial(quelle.id, url, text, h, ctx, force, true)]++
-    } catch { stat.fehler++ }
+      stat[await verarbeiteMaterial(quelle.id, effektiveUrl, text, h, ctx, force, true)]++
+    } catch (e) {
+      stat.fehler++
+      if (stat.fehler <= 5) console.error(`Crawl-Fehler ${url}: ${(e as Error).message}`)
+    }
   }
+  const gedeckelt = queue.length > 0
   const aufraeumen = await raeumeAuf(quelle.id, gesehen, gedeckelt)
-  return `${urls.length} Seiten${gedeckelt ? ` (gedeckelt, ${MAX_SEITEN}/Nacht)` : ''} via ${sitemap ? 'Sitemap' : 'Links'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
+  return `${besucht} Seiten${gedeckelt ? ` (gedeckelt, ${MAX_SEITEN}/Nacht, ${queue.length} offen)` : ''} via ${sitemap ? 'Sitemap' : 'Link-Spider'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
 }
 
 // ---------- Git-Connector: Repo klonen, Markdown-Dateien als Materialien ----------
@@ -560,7 +586,8 @@ async function crawlCloud(quelle: { id: number; url: string; etag: string | null
     const ext = path.extname(d.pfad).toLowerCase()
     const istVideo = VIDEO_EXTS.includes(ext)
     if ((!CLOUD_EXTS.includes(ext) && !istVideo) || (!istVideo && d.groesse > CLOUD_DATEI_MAX)) { stat.übersprungen++; continue }
-    if (++relevante > MAX_SEITEN) break
+    relevante++
+    if (stat.neu + stat.aktualisiert + stat.abgelehnt >= MAX_SEITEN) break
     const url = `${quelle.url}#${d.pfad}` // kein Deep-Link in anonyme Freigaben möglich — Fragment macht die URL eindeutig
     gesehen.add(url)
     neueSigs[d.pfad] = d.sig
