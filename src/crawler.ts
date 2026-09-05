@@ -9,7 +9,7 @@ import { klassifiziere, ZuordnungsOption } from './ai.js'
 const TODES_SCHWELLE = 3
 const MAX_SEITEN = 200 // Deckel pro Quelle und Nacht — Rest kommt in späteren Läufen
 
-const hash = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
+const hash = (s: string | Buffer) => crypto.createHash('sha256').update(s).digest('hex')
 
 function fetchSeite(url: string): Promise<Response> {
   return fetch(url, {
@@ -274,23 +274,21 @@ async function crawlGit(quelle: { id: number; url: string; contentHash: string |
   return `1 Repo-Material (${mdDateien.length} md, ${texDateien.length} tex): ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.abgelehnt} abgelehnt${aufraeumen}`
 }
 
-// ---------- Cloud-Connector: Freigabelink → Ordner-Zip → Dateien als Materialien ----------
-// Anonyme Share-Links erlauben kein rclone (bräuchte OAuth pro Anbieter), aber OneDrive,
-// Dropbox und Nextcloud liefern den Ordner anonym als Zip. Google Drive kann das nicht → später.
+// ---------- Cloud-Connector ----------
+// Anonyme Freigabelinks statt rclone/OAuth. OneDrive und Nextcloud: erst anonym listen
+// (Hash/ETag pro Datei), dann nur geänderte, relevante Dateien einzeln laden.
+// Dropbox: kein anonymes Listing → Ordner-Zip mit hartem Deckel.
 
-function cloudZipUrl(url: string): string {
-  const u = new URL(url)
-  const host = u.hostname.replace(/^www\./, '')
-  if (host === '1drv.ms' || host === 'onedrive.live.com') {
-    const b64 = Buffer.from(url).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_')
-    return `https://api.onedrive.com/v1.0/shares/u!${b64}/root/content`
-  }
-  if (host.endsWith('dropbox.com')) {
-    u.searchParams.set('dl', '1')
-    return u.toString()
-  }
-  if (/^\/s\/[^/]+\/?$/.test(u.pathname)) return `${u.origin}${u.pathname.replace(/\/$/, '')}/download`
-  throw new Error('Cloud-Anbieter noch nicht unterstützt (Google Drive folgt)')
+const CLOUD_BUDGET = 500 * 1024 * 1024 // Download-Budget pro Quelle und Nacht (OneDrive/Nextcloud)
+const CLOUD_DATEI_MAX = 50 * 1024 * 1024 // Einzeldatei-Limit
+const DROPBOX_ZIP_MAX = 200 * 1024 * 1024 // Zip ist alles-oder-nichts
+const CLOUD_EXTS = ['.md', '.markdown', '.txt', '.tex', '.html', '.htm', '.pdf', '.docx', '.odt']
+
+interface CloudDatei {
+  pfad: string // relativ, z.B. "unterordner/blatt.pdf"
+  sig: string // Anbieter-Hash bzw. ETag+Grösse — für die billige Änderungserkennung
+  groesse: number
+  laden: () => Promise<Buffer>
 }
 
 const PYTHON = path.join(process.cwd(), '.venv', 'bin', 'python')
@@ -345,44 +343,148 @@ async function dateiText(pfad: string): Promise<string | null> {
   return null
 }
 
-async function crawlCloud(quelle: { id: number; url: string; contentHash: string | null }, ctx: KlassifikationsKontext, force: boolean): Promise<string> {
-  const zipUrl = cloudZipUrl(quelle.url)
-  const res = await fetch(zipUrl, {
-    headers: { 'User-Agent': 'AtlasBot/0.1 (+https://atlas.eduskript.org)' },
+function cloudFetch(url: string, extra: Record<string, string> = {}, method = 'GET'): Promise<Response> {
+  return fetch(url, {
+    method,
+    headers: { 'User-Agent': 'AtlasBot/0.1 (+https://atlas.eduskript.org)', ...extra },
     redirect: 'follow',
     signal: AbortSignal.timeout(120000),
   })
-  if (!res.ok) throw new Error(`Zip-Download HTTP ${res.status}`)
-  const buf = Buffer.from(await res.arrayBuffer())
-  if (buf.length > 200 * 1024 * 1024) throw new Error('Ordner grösser als 200 MB')
+}
 
-  const dir = path.join(process.cwd(), 'data', 'cloud', String(quelle.id))
+// OneDrive-Shares-API: anonymes Listing inkl. quickXorHash pro Datei.
+async function listeOneDrive(shareUrl: string): Promise<CloudDatei[]> {
+  const b64 = Buffer.from(shareUrl).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_')
+  const basis = `https://api.onedrive.com/v1.0/shares/u!${b64}`
+  const dateien: CloudDatei[] = []
+  async function rekursiv(pfad: string) {
+    const seg = pfad ? `/root:/${pfad.split('/').map(encodeURIComponent).join('/')}:` : '/root'
+    const res = await cloudFetch(`${basis}${seg}/children?select=name,size,file,folder`)
+    if (!res.ok) throw new Error(`OneDrive-Listing HTTP ${res.status}`)
+    const { value } = (await res.json()) as { value: { name: string; size: number; folder?: object; file?: { hashes?: { quickXorHash?: string } } }[] }
+    for (const e of value) {
+      const kindPfad = pfad ? `${pfad}/${e.name}` : e.name
+      if (e.folder) await rekursiv(kindPfad)
+      else dateien.push({
+        pfad: kindPfad,
+        sig: e.file?.hashes?.quickXorHash ?? `size:${e.size}`,
+        groesse: e.size,
+        laden: async () => {
+          const r = await cloudFetch(`${basis}/root:/${kindPfad.split('/').map(encodeURIComponent).join('/')}:/content`)
+          if (!r.ok) throw new Error(`OneDrive-Download HTTP ${r.status}`)
+          return Buffer.from(await r.arrayBuffer())
+        },
+      })
+    }
+  }
+  await rekursiv('')
+  return dateien
+}
+
+// Nextcloud/ownCloud: anonymes WebDAV mit Share-Token als Benutzername; ETag pro Datei.
+async function listeNextcloud(shareUrl: string): Promise<CloudDatei[]> {
+  const u = new URL(shareUrl)
+  const token = u.pathname.split('/').filter(Boolean)[1]
+  const dav = `${u.origin}/public.php/webdav`
+  const authHeader = { Authorization: `Basic ${Buffer.from(`${token}:`).toString('base64')}` }
+  const dateien: CloudDatei[] = []
+  async function rekursiv(pfad: string) {
+    const res = await cloudFetch(`${dav}/${pfad.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`, { ...authHeader, Depth: '1' }, 'PROPFIND')
+    if (!res.ok) throw new Error(`WebDAV-Listing HTTP ${res.status}`)
+    const xml = await res.text()
+    for (const antwort of xml.split(/<\/?d:response>/i)) {
+      const href = antwort.match(/<d:href>([^<]+)<\/d:href>/i)?.[1]
+      if (!href) continue
+      const rel = decodeURIComponent(href).split('/public.php/webdav/')[1]?.replace(/\/$/, '') ?? ''
+      if (!rel || rel === pfad) continue
+      const istOrdner = /<d:collection\s*\/>/i.test(antwort)
+      if (istOrdner) await rekursiv(rel)
+      else {
+        const etag = antwort.match(/<d:getetag>"?([^<"]+)"?<\/d:getetag>/i)?.[1] ?? ''
+        const groesse = Number(antwort.match(/<d:getcontentlength>(\d+)<\/d:getcontentlength>/i)?.[1] ?? 0)
+        dateien.push({
+          pfad: rel,
+          sig: `${etag}:${groesse}`,
+          groesse,
+          laden: async () => {
+            const r = await cloudFetch(`${dav}/${rel.split('/').map(encodeURIComponent).join('/')}`, authHeader)
+            if (!r.ok) throw new Error(`WebDAV-Download HTTP ${r.status}`)
+            return Buffer.from(await r.arrayBuffer())
+          },
+        })
+      }
+    }
+  }
+  await rekursiv('')
+  return dateien
+}
+
+// Dropbox: kein anonymes Listing — Ordner-Zip (alles-oder-nichts, darum harter Deckel).
+async function listeDropboxZip(shareUrl: string, quelleId: number): Promise<CloudDatei[]> {
+  const u = new URL(shareUrl)
+  u.searchParams.set('dl', '1')
+  const res = await cloudFetch(u.toString())
+  if (!res.ok) throw new Error(`Dropbox-Zip HTTP ${res.status}`)
+  const buf = Buffer.from(await res.arrayBuffer())
+  if (buf.length > DROPBOX_ZIP_MAX) throw new Error(`Dropbox-Ordner grösser als ${DROPBOX_ZIP_MAX / 1024 / 1024} MB (Zip-Limit)`)
+  const dir = path.join(process.cwd(), 'data', 'tmp', `dropbox-${quelleId}`)
   await fs.rm(dir, { recursive: true, force: true })
   await fs.mkdir(dir, { recursive: true })
   const zipPfad = `${dir}.zip`
   await fs.writeFile(zipPfad, buf)
   await python(['-c', UNZIP_PY, zipPfad, dir])
   await fs.rm(zipPfad, { force: true })
-
   const alle = (await fs.readdir(dir, { recursive: true })) as string[]
-  const dateien: string[] = []
+  const dateien: CloudDatei[] = []
   for (const rel of alle) {
-    const stat = await fs.stat(path.join(dir, rel))
-    if (stat.isFile()) dateien.push(rel)
+    const st = await fs.stat(path.join(dir, rel))
+    if (!st.isFile()) continue
+    const inhalt = await fs.readFile(path.join(dir, rel))
+    dateien.push({ pfad: rel, sig: hash(inhalt), groesse: st.size, laden: async () => inhalt })
   }
-  const gedeckelt = dateien.length > MAX_SEITEN
+  return dateien
+}
+
+async function crawlCloud(quelle: { id: number; url: string; etag: string | null }, ctx: KlassifikationsKontext, force: boolean): Promise<string> {
+  const host = new URL(quelle.url).hostname.replace(/^www\./, '')
+  const istDropbox = host.endsWith('dropbox.com')
+  const dateien = istDropbox
+    ? await listeDropboxZip(quelle.url, quelle.id)
+    : host === '1drv.ms' || host === 'onedrive.live.com'
+      ? await listeOneDrive(quelle.url)
+      : await listeNextcloud(quelle.url)
+
+  // Signaturen der letzten Nacht (Quelle.etag als JSON-Map pfad→sig)
+  let sigs: Record<string, string> = {}
+  try { sigs = JSON.parse(quelle.etag ?? '{}') } catch { /* alter Wert, egal */ }
+  const neueSigs: Record<string, string> = {}
 
   const stat = { neu: 0, aktualisiert: 0, unverändert: 0, abgelehnt: 0, übersprungen: 0, fehler: 0 }
   const gesehen = new Set<string>()
-  for (const rel of dateien.slice(0, MAX_SEITEN)) {
+  let budget = CLOUD_BUDGET
+  let relevante = 0
+  for (const d of dateien) {
+    if (!CLOUD_EXTS.includes(path.extname(d.pfad).toLowerCase()) || d.groesse > CLOUD_DATEI_MAX) { stat.übersprungen++; continue }
+    if (++relevante > MAX_SEITEN) break
+    const url = `${quelle.url}#${d.pfad}` // kein Deep-Link in anonyme Freigaben möglich — Fragment macht die URL eindeutig
+    gesehen.add(url)
+    neueSigs[d.pfad] = d.sig
+    if (sigs[d.pfad] === d.sig && !force) { stat.unverändert++; continue }
+    if (d.groesse > budget) { stat.fehler++; continue } // Budget erschöpft — Rest in der nächsten Nacht
+    budget -= d.groesse
     try {
-      const text = await dateiText(path.join(dir, rel))
-      if (!text || text.trim().length < 50) { stat.übersprungen++; continue }
-      const url = `${quelle.url}#${rel}` // kein Deep-Link in anonyme Freigaben möglich — Fragment macht die URL eindeutig
-      gesehen.add(url)
+      const tmp = path.join(process.cwd(), 'data', 'tmp', `cloud-${quelle.id}-${crypto.randomBytes(4).toString('hex')}${path.extname(d.pfad)}`)
+      await fs.mkdir(path.dirname(tmp), { recursive: true })
+      await fs.writeFile(tmp, await d.laden())
+      const text = await dateiText(tmp)
+      await fs.rm(tmp, { force: true })
+      if (!text || text.trim().length < 50) { stat.übersprungen++; gesehen.delete(url); delete neueSigs[d.pfad]; continue }
       stat[await verarbeiteMaterial(quelle.id, url, text, hash(text), ctx, force, true)]++
     } catch { stat.fehler++ }
   }
+  await fs.rm(path.join(process.cwd(), 'data', 'tmp', `dropbox-${quelle.id}`), { recursive: true, force: true })
+  await prisma.quelle.update({ where: { id: quelle.id }, data: { etag: JSON.stringify(neueSigs) } })
+  const gedeckelt = relevante > MAX_SEITEN
   const aufraeumen = await raeumeAuf(quelle.id, gesehen, gedeckelt)
   return `${dateien.length} Dateien${gedeckelt ? ` (gedeckelt, ${MAX_SEITEN}/Nacht)` : ''}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.übersprungen} übersprungen, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
 }
