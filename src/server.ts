@@ -363,7 +363,7 @@ app.get('/quellen', async (req, res) => {
   const zeile = (q: (typeof quellen)[0]) =>
     `<tr><td><a href="${esc(q.url)}" rel="noopener">${esc(kürze(q.titel ?? q.url, 60))}</a></td><td>${esc(q.typ)}</td><td>${q.qualityScore ?? '–'}</td><td>${q.todesCounter}</td><td>${q._count.materialien}</td><td>${esc(q.melder.nickname)}</td>${
       user && (user.istAdmin || q.melderId === user.id)
-        ? `<td><form hx-post="/quelle/${q.id}/loeschen" hx-target="closest tr" hx-swap="outerHTML" hx-confirm="Quelle samt ${q._count.materialien} Materialien und Votes löschen?"><button style="background:#b3261e">Löschen</button></form></td>`
+        ? `<td><form hx-post="/quelle/${q.id}/loeschen" hx-target="closest tr" hx-swap="outerHTML" hx-confirm="Quelle samt ${q._count.materialien} Materialien und Votes löschen?"><button class="btn-loeschen" title="Quelle löschen"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button></form></td>`
         : ''
     }</tr>`
   const body = `<h1>Quellen</h1>
@@ -443,7 +443,7 @@ async function adminTagsSektion(): Promise<string> {
   const tagAuswahl = aktive.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('')
   const aktivTabelle = `<h2>Aktive Tags</h2>
 <table><tr><th>Tag</th><th>Materialien</th><th></th></tr>
-${aktive.map((t) => `<tr><td>${esc(t.name)}</td><td>${t._count.material}</td><td><form hx-post="/admin/tag/${t.id}/loeschen" hx-target="#tag-verwaltung" hx-swap="outerHTML" hx-confirm="Tag löschen?"><button style="background:#b3261e">Löschen</button></form></td></tr>`).join('\n')}</table>`
+${aktive.map((t) => `<tr><td>${esc(t.name)}</td><td>${t._count.material}</td><td><form hx-post="/admin/tag/${t.id}/loeschen" hx-target="#tag-verwaltung" hx-swap="outerHTML" hx-confirm="Tag löschen?"><button class="btn-loeschen" title="Tag löschen"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button></form></td></tr>`).join('\n')}</table>`
   if (!vorschlaege.length) return `<div id="tag-verwaltung"><h2>Tag-Vorschläge (0)</h2><p class="meta">Keine offenen Vorschläge.</p>${aktivTabelle}</div>`
   return `<div id="tag-verwaltung">
 <h2>Tag-Vorschläge (${vorschlaege.length})</h2>

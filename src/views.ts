@@ -133,6 +133,8 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
   dialog .sekundaer { background: var(--bg); color: var(--fg); border: 1px solid var(--rand); }
   .nur-dunkel { display: none; } [data-theme="dark"] .nur-dunkel { display: flex; } [data-theme="dark"] .nur-hell { display: none; }
   .nur-hell { display: flex; }
+  .btn-loeschen { background: none !important; border: none; color: #b3261e; opacity: .55; padding: .2rem .3rem; cursor: pointer; border-radius: 6px; display: inline-flex; }
+  .btn-loeschen:hover { opacity: 1; background: rgb(179 38 30 / .1) !important; }
   .qfilter { margin-bottom: 1rem; }
   .fkats { display: flex; gap: 1rem; margin-bottom: .4rem; }
   .fkat { border: none; background: none; color: var(--meta); font: inherit; font-size: .85rem; cursor: pointer; display: flex; align-items: center; gap: .25rem; padding: 0; position: relative; }
