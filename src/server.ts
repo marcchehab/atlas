@@ -197,6 +197,17 @@ app.post('/melden', async (req, res) => {
   } catch {
     return res.send(layout('Fehler', side, '<p>Ungültige URL.</p><p><a href="/melden">Zurück</a></p>', user))
   }
+  // Git-Profilseiten (github.com/user ohne Repo) blocken — wir crawlen bewusst nur gemeldete Repos.
+  try {
+    const u = new URL(url)
+    const host = u.hostname.replace(/^www\./, '')
+    const segmente = u.pathname.split('/').filter(Boolean)
+    if (['github.com', 'gitlab.com', 'codeberg.org'].includes(host) && segmente.length < 2) {
+      return res.send(layout('Bitte einzelne Repos melden', side, `<h1>Bitte einzelne Repos melden</h1>
+<p>Das ist eine Profilseite (<code>${esc(host)}/${esc(segmente[0] ?? '')}</code>). Atlas fügt bewusst nicht automatisch alle Repos einer Person hinzu — melde stattdessen die einzelnen Repos, die Unterrichtsmaterial enthalten (z.B. <code>${esc(host)}/${esc(segmente[0] ?? 'user')}/mein-skript</code>).</p>
+<p><a href="/melden">Zurück</a></p>`, user))
+    }
+  } catch { /* normalizeUrl hat schon validiert */ }
   const existiert = await prisma.quelle.findUnique({ where: { url } })
   if (existiert) {
     return res.send(layout('Schon vorhanden', side, `<p>Diese Quelle ist schon gemeldet${existiert.titel ? `: <strong>${esc(existiert.titel)}</strong>` : ''}.</p><p><a href="/">Zur Übersicht</a></p>`, user))
