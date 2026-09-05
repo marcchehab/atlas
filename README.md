@@ -1,4 +1,6 @@
-# Atlas
+<p align="center">
+  <a href="https://atlas.eduskript.org"><img src="public/logo.svg" alt="Atlas by Eduskript" width="240"></a>
+</p>
 
 Gemeinsame Sammlung von Unterrichtsmaterialien für Schweizer Gymnasien, geordnet nach dem [Rahmenlehrplan Maturitätsschulen (EDK 2024)](https://edudoc.ch/record/232281/files/Rahmenlehrplan-maturitatsschulen.pdf) — live auf [atlas.eduskript.org](https://atlas.eduskript.org). Aktuell: Grundlagenfach Informatik.
 
