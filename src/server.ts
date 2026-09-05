@@ -199,14 +199,15 @@ ${(q || tag) ? (karten.length ? karten.map((k) => materialKarte(k, !!user)).join
 // Melden: nur mit Login (Kostenbremse) — Quelle wird sofort gecrawlt, damit man das Resultat sieht
 app.get('/melden', async (req, res) => {
   const user = await aktuellerUser(req)
-  if (!user) return res.redirect('/login?weiter=/melden')
+  const vorausgewaehlt = String(req.query.fach ?? STANDARD_FACH)
+  if (!user) return res.redirect(`/login?weiter=${encodeURIComponent(`/melden?fach=${vorausgewaehlt}`)}`)
   const faecher = await prisma.fach.findMany({ select: { code: true, name: true } })
-  const side = await baueSidebar(STANDARD_FACH, undefined, user)
+  const side = await baueSidebar(vorausgewaehlt, undefined, user)
   const body = `<h1>Quelle melden</h1>
 <p>Nur ein Link — den Rest macht Atlas (Crawling, Zuordnung zum Lehrplan, Zusammenfassung).</p>
 <form method="post">
   <p><input type="url" name="url" required placeholder="https://…" style="width:100%"></p>
-  <p><select name="fach"><option value="">Fach (optional)</option>${faecher.map((f) => `<option value="${esc(f.code)}">${esc(f.name)}</option>`).join('')}</select></p>
+  <p><select name="fach"><option value="">Fach (optional)</option>${faecher.map((f) => `<option value="${esc(f.code)}"${f.code === vorausgewaehlt ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select></p>
   <p><button>Melden</button></p>
 </form>`
   res.send(layout('Quelle melden', side, body, user))

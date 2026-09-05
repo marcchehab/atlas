@@ -158,7 +158,7 @@ export function sidebar(d: SidebarDaten): string {
       ? `<button onclick="document.getElementById('lo').submit()" title="${esc(d.user.nickname)} — Abmelden">${person}</button><form id="lo" method="post" action="/logout" hidden></form>`
       : `<a class="pbtn" href="/login" title="Sign in">${login}</a>`
   }</div>
-  <div class="pill melden-pill"><a class="pbtn" href="/melden" title="Nur ein Link — den Rest macht Atlas">${plus}Material teilen</a></div>
+  <div class="pill melden-pill"><a class="pbtn" href="/melden?fach=${esc(d.fachCode)}" title="Nur ein Link — den Rest macht Atlas">${plus}Material teilen</a></div>
 </div>
 <select onchange="location='/fach/'+this.value">
 ${d.faecher.map((f) => `<option value="${esc(f.code)}"${f.code === d.fachCode ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}
