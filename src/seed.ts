@@ -67,7 +67,7 @@ const INFORMATIK: LerngebietDef[] = [
   ]],
 ]
 
-const TAGS = ['python', 'java', 'robotik', 'blender', 'spielerisch', 'formell', 'unplugged', 'video', 'arbeitsblatt', 'projekt', 'theorie']
+const TAGS = ['python', 'java', 'robotik', 'blender', 'spielerisch', 'formell', 'unplugged', 'arbeitsblatt', 'projekt', 'theorie']
 
 async function seed() {
   await initDb()

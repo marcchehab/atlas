@@ -81,6 +81,7 @@ async function ladeMaterialKarten(where: object, userId: number | null, fachCode
       url: m.url,
       zusammenfassung: m.zusammenfassung,
       tags: m.tags.map((t) => t.tag.name),
+      format: m.format,
       zuordnungen: m.zuordnungen.map((z) =>
         z.kompetenz
           ? { code: z.kompetenz.code, label: z.kompetenz.text, href: `/fach/${fachCode}/k/${z.kompetenz.code}` }

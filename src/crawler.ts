@@ -43,7 +43,8 @@ async function verarbeiteMaterial(
   contentHash: string,
   ctx: KlassifikationsKontext,
   force = false,
-  istEinzelseite = false
+  istEinzelseite = false,
+  format = 'webseite'
 ): Promise<'neu' | 'aktualisiert' | 'unverändert' | 'abgelehnt'> {
   const vorhanden = await prisma.material.findUnique({ where: { url } })
   if (vorhanden && vorhanden.contentHash === contentHash && !force) return 'unverändert'
@@ -59,8 +60,8 @@ async function verarbeiteMaterial(
 
   const material = await prisma.material.upsert({
     where: { url },
-    create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, contentHash },
-    update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, contentHash },
+    create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, contentHash, format },
+    update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, contentHash, format },
   })
 
   const zuordnungen: { teilgebietId: number; kompetenzId: number | null }[] = []
@@ -247,7 +248,7 @@ async function crawlGit(quelle: { id: number; url: string; contentHash: string |
         const text = await fs.readFile(path.join(dir, datei), 'utf8')
         const url = `${quelle.url.replace(/\.git$/, '')}/blob/HEAD/${datei}` // GitHub/GitLab-kompatibel
         gesehen.add(url)
-        stat[await verarbeiteMaterial(quelle.id, url, text, hash(text), ctx, force)]++
+        stat[await verarbeiteMaterial(quelle.id, url, text, hash(text), ctx, force, false, 'markdown')]++
       } catch { stat.fehler++ }
     }
     await prisma.quelle.update({ where: { id: quelle.id }, data: { contentHash: head } })
@@ -268,7 +269,7 @@ async function crawlGit(quelle: { id: number; url: string; contentHash: string |
     .replace(/[{}]/g, '')
     .slice(0, 120000)
   const url = quelle.url.replace(/\.git$/, '')
-  stat[await verarbeiteMaterial(quelle.id, url, text, hash(text), ctx, force)]++
+  stat[await verarbeiteMaterial(quelle.id, url, text, hash(text), ctx, force, false, 'repo')]++
   await prisma.quelle.update({ where: { id: quelle.id }, data: { contentHash: head } })
   const aufraeumen = await raeumeAuf(quelle.id, new Set([url]), false)
   return `1 Repo-Material (${mdDateien.length} md, ${texDateien.length} tex): ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.abgelehnt} abgelehnt${aufraeumen}`
@@ -518,6 +519,14 @@ async function listeDropboxZip(shareUrl: string, quelleId: number): Promise<Clou
   return dateien
 }
 
+function formatFuerExt(ext: string): string {
+  if (ext === '.pdf') return 'pdf'
+  if (ext === '.pptx') return 'präsentation'
+  if (['.md', '.markdown'].includes(ext)) return 'markdown'
+  if (['.html', '.htm'].includes(ext)) return 'webseite'
+  return 'dokument' // docx, odt, txt, tex
+}
+
 async function crawlCloud(quelle: { id: number; url: string; etag: string | null }, ctx: KlassifikationsKontext, force: boolean): Promise<string> {
   const host = new URL(quelle.url).hostname.replace(/^www\./, '')
   const istDropbox = host.endsWith('dropbox.com')
@@ -550,7 +559,7 @@ async function crawlCloud(quelle: { id: number; url: string; etag: string | null
     if (istVideo) {
       // Nur Metadaten — die AI ordnet nach Dateiname/Ordnerpfad zu
       const text = `Videodatei aus einem Unterrichtsordner (kein Transkript verfügbar — nur nach Dateiname und Ordnerpfad beurteilen):\nDatei: ${d.pfad}\nGrösse: ${Math.round(d.groesse / 1024 / 1024)} MB`
-      try { stat[await verarbeiteMaterial(quelle.id, url, text, hash(d.sig + d.pfad), ctx, force, true)]++ } catch { stat.fehler++ }
+      try { stat[await verarbeiteMaterial(quelle.id, url, text, hash(d.sig + d.pfad), ctx, force, true, 'video')]++ } catch { stat.fehler++ }
       continue
     }
     if (d.groesse > budget) { stat.fehler++; continue } // Budget erschöpft — Rest in der nächsten Nacht
@@ -562,7 +571,7 @@ async function crawlCloud(quelle: { id: number; url: string; etag: string | null
       const text = await dateiText(tmp)
       await fs.rm(tmp, { force: true })
       if (!text || text.trim().length < 50) { stat.übersprungen++; gesehen.delete(url); delete neueSigs[d.pfad]; continue }
-      stat[await verarbeiteMaterial(quelle.id, url, text, hash(text), ctx, force, true)]++
+      stat[await verarbeiteMaterial(quelle.id, url, text, hash(text), ctx, force, true, formatFuerExt(ext))]++
     } catch { stat.fehler++ }
   }
   await fs.rm(path.join(process.cwd(), 'data', 'tmp', `dropbox-${quelle.id}`), { recursive: true, force: true })

@@ -111,6 +111,7 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
   .meta { font-size: .8rem; color: var(--meta); }
   .tag { display: inline-block; background: var(--chip); border-radius: 999px; padding: .05rem .6rem; font-size: .78rem; margin-right: .3rem; color: var(--primary); }
   .tag.ziel { background: var(--chip-ziel); }
+  .tag.format { background: transparent; border: 1px solid var(--rand); color: var(--meta); }
   .voten { display: flex; flex-direction: column; align-items: center; gap: .1rem; }
   .voten .pfeil { border: 1px solid var(--rand); border-radius: 8px; background: var(--card); color: var(--fg); cursor: pointer; padding: .1rem .55rem; font-size: .85rem; line-height: 1.3; font-family: inherit; }
   .voten .pfeil:hover { background: var(--bg); text-decoration: none; }
@@ -254,6 +255,7 @@ export interface MaterialKarte {
   url: string
   zusammenfassung: string
   tags: string[]
+  format: string | null
   zuordnungen: { code: string; label: string; href: string }[]
   score: number
   meinVote: number // +1 | 0 | -1
@@ -314,7 +316,7 @@ export function materialKarte(m: MaterialKarte, eingeloggt: boolean): string {
         m.url.includes('#') ? ` · 📄 <span title="Datei im geteilten Ordner — der Link öffnet den Ordner">${esc(m.url.split('#')[1])}</span>` : ''
       }</div>
       <p style="margin:.2rem 0">${esc(m.zusammenfassung)}</p>
-      <div>${m.tags.map((t) => `<a class="tag" href="/suche?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}
+      <div>${m.format ? `<span class="tag format">${esc(m.format)}</span>` : ''}${m.tags.map((t) => `<a class="tag" href="/suche?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}
       ${m.zuordnungen.map((z) => `<a class="tag ziel" href="${z.href}" title="${esc(z.label)}">${esc(z.code)}</a>`).join('')}</div>
     </div>
     ${voteButtons(m, eingeloggt)}
