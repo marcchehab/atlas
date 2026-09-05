@@ -158,6 +158,8 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
   .fkat.offen { color: var(--fg); font-weight: 600; }
   .fkat svg { transition: transform .15s; }
   .fkat.offen svg { transform: rotate(90deg); }
+  .tag-edit { border: 1px solid transparent; background: transparent; color: var(--fg); font: inherit; font-size: .88rem; padding: .1rem .3rem; border-radius: 6px; width: 11rem; }
+  .tag-edit:hover, .tag-edit:focus { border-color: var(--rand); background: var(--card); outline: none; }
   .chipzahl { font-size: .68rem; opacity: .6; margin-left: .3rem; }
   .qchip.aktiv .chipzahl { opacity: .85; }
   .freset { font-size: .72rem; opacity: .6; margin-left: .3rem; }
