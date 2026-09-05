@@ -35,8 +35,10 @@ Ohne `GEMINI_API_KEY` in `.env` läuft ein Mock-Klassifikator (Keyword-Heuristik
 
 ## Deployment (VPS)
 
+Läuft auf einem Infomaniak VPS Lite (`ov-dc1e03.infomaniak.ch`, Debian 13, User `debian`). Deploy = Push:
+
 ```sh
-./deploy.sh    # = git pull && docker compose up -d --build
+git push vps master   # post-receive-Hook: checkout → docker compose up -d --build → image prune
 ```
 
-Compose: `app` (Node + trafilatura-venv) und `caddy` (Auto-TLS für atlas.eduskript.org). SQLite liegt in `./data/` (Backup = Datei kopieren). `.env` auf dem Server mit echtem `SESSION_SECRET` und `GEMINI_API_KEY` anlegen.
+Compose: `app` (Node + trafilatura-venv) und `caddy` (Auto-TLS für atlas.eduskript.org; DNS bei Cloudflare, Record „DNS only"). SQLite liegt in `~/atlas/data/`. `.env` auf dem Server hat `SESSION_SECRET` und `OPENROUTER_API_KEY`. Nächtlicher Crawl: systemd-Timer `atlas-crawl.timer` (02:30 UTC), Logs via `journalctl -u atlas-crawl`. `deploy.sh` bleibt als manueller Fallback auf dem Server.
