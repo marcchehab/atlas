@@ -19,22 +19,52 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
 <script src="/htmx.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script>
+  // Vor dem ersten Paint: Theme und Schriftgrösse aus localStorage
+  (function () {
+    const t = localStorage.getItem('theme')
+    if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.dataset.theme = 'dark'
+    const f = localStorage.getItem('fontsize')
+    if (f) document.documentElement.style.fontSize = f + '%'
+  })()
+  function themeWechseln() {
+    const dunkel = document.documentElement.dataset.theme === 'dark'
+    if (dunkel) delete document.documentElement.dataset.theme
+    else document.documentElement.dataset.theme = 'dark'
+    localStorage.setItem('theme', dunkel ? 'light' : 'dark')
+  }
+  function schrift(delta) {
+    const f = Math.min(130, Math.max(80, (parseInt(localStorage.getItem('fontsize')) || 100) + delta))
+    localStorage.setItem('fontsize', f)
+    document.documentElement.style.fontSize = f + '%'
+  }
+</script>
 <style>
-  :root { --primary: hsl(221.2 83.2% 53.3%); --bg: #f5f5f5; --fg: #262626; --rand: #e4e4e4; --meta: #737373; }
+  :root { --primary: hsl(221.2 83.2% 53.3%); --bg: #f5f5f5; --card: #fff; --fg: #262626; --rand: #e4e4e4; --meta: #737373; --chip: #eef3fa; --chip-ziel: #f3eefa; --hinweis-bg: #fff8e1; --hinweis-rand: #e6d9a0; }
+  [data-theme="dark"] { --primary: hsl(217.2 91.2% 59.8%); --bg: #0d0d0d; --card: #1a1a1a; --fg: #e5e5e5; --rand: #2e2e2e; --meta: #9ca3af; --chip: #1c2740; --chip-ziel: #29203f; --hinweis-bg: #2b2413; --hinweis-rand: #5c4d1e; }
   * { box-sizing: border-box; }
   body { font-family: Inter, system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--fg); line-height: 1.5; }
   h1, h2, h3 { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; letter-spacing: .01em; }
   a { color: var(--primary); text-decoration: none; } a:hover { text-decoration: underline; }
+  [data-theme="dark"] .logo-img { filter: invert(1) hue-rotate(180deg); }
 
   .app { display: flex; min-height: 100vh; }
-  aside { width: 300px; flex-shrink: 0; background: #fff; border-right: 1px solid var(--rand); padding: 1rem; overflow-y: auto; position: sticky; top: 0; height: 100vh; }
+  aside { width: 300px; flex-shrink: 0; background: var(--card); border-right: 1px solid var(--rand); padding: 1rem; overflow-y: auto; position: sticky; top: 0; height: 100vh; }
   main { flex: 1; padding: 1.5rem 2rem; max-width: 56rem; }
+
+  .pillbar { display: flex; justify-content: center; gap: .5rem; margin: .6rem 0 1rem; }
+  .pillbar .pill { display: flex; align-items: center; border: 1px solid var(--rand); background: var(--card); border-radius: 8px; overflow: hidden; }
+  .pillbar button, .pillbar a.pbtn { border: none; background: none; color: var(--fg); font: inherit; font-size: .82rem; padding: .35rem .55rem; cursor: pointer; display: flex; align-items: center; gap: .3rem; text-decoration: none; }
+  .pillbar button:hover, .pillbar a.pbtn:hover { background: var(--bg); }
+  .pillbar .sep { width: 1px; background: var(--rand); }
+  .nur-dunkel { display: none; } [data-theme="dark"] .nur-dunkel { display: flex; } [data-theme="dark"] .nur-hell { display: none; }
+  .nur-hell { display: flex; }
 
   aside .logo { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 1.5rem; color: var(--primary); }
   aside .by { font-family: Inter, sans-serif; font-size: 11px; color: rgb(115 115 115 / .4); margin-left: .3rem; }
   aside .by:hover { color: var(--meta); text-decoration: none; }
   aside .untertitel { font-size: .75rem; color: var(--meta); margin-bottom: 1rem; }
-  aside select { width: 100%; padding: .4rem; font: inherit; border: 1px solid var(--rand); border-radius: 6px; background: #fff; margin-bottom: 1rem; }
+  aside select { width: 100%; padding: .4rem; font: inherit; border: 1px solid var(--rand); border-radius: 6px; background: var(--card); color: var(--fg); margin-bottom: 1rem; }
   .lg { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: .95rem; margin: .9rem 0 .2rem; }
   .tg, .ko { display: block; border-radius: 6px; padding: .15rem .5rem; color: var(--fg); font-size: .85rem; }
   .tg { font-weight: 600; margin-top: .15rem; }
@@ -45,23 +75,23 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
   .tg.aktiv .anzahl, .ko.aktiv .anzahl { color: #cdd9f7; }
   aside .fuss { margin-top: 1.2rem; padding-top: .8rem; border-top: 1px solid var(--rand); font-size: .8rem; display: flex; flex-direction: column; gap: .3rem; }
 
-  .karte { background: #fff; border: 1px solid var(--rand); border-radius: 10px; padding: .9rem 1.1rem; margin-bottom: .8rem; }
+  .karte { background: var(--card); border: 1px solid var(--rand); border-radius: 10px; padding: .9rem 1.1rem; margin-bottom: .8rem; }
   .karte h3 { margin: 0 0 .3rem; font-size: 1.15rem; }
   .meta { font-size: .8rem; color: var(--meta); }
-  .tag { display: inline-block; background: #eef3fa; border-radius: 999px; padding: .05rem .6rem; font-size: .78rem; margin-right: .3rem; color: var(--primary); }
-  .tag.ziel { background: #f3eefa; }
+  .tag { display: inline-block; background: var(--chip); border-radius: 999px; padding: .05rem .6rem; font-size: .78rem; margin-right: .3rem; color: var(--primary); }
+  .tag.ziel { background: var(--chip-ziel); }
   .voten { display: flex; flex-direction: column; align-items: center; gap: .1rem; }
-  .voten .pfeil { border: 1px solid var(--rand); border-radius: 8px; background: #fff; color: var(--fg); cursor: pointer; padding: .1rem .55rem; font-size: .85rem; line-height: 1.3; font-family: inherit; }
+  .voten .pfeil { border: 1px solid var(--rand); border-radius: 8px; background: var(--card); color: var(--fg); cursor: pointer; padding: .1rem .55rem; font-size: .85rem; line-height: 1.3; font-family: inherit; }
   .voten .pfeil:hover { background: var(--bg); text-decoration: none; }
   .voten .pfeil.aktiv { background: var(--primary); color: #fff; border-color: var(--primary); }
   .voten .score { font-weight: 600; font-size: .95rem; }
   form.suche { display: flex; gap: .5rem; margin-bottom: 1.2rem; }
-  form.suche input[type=search] { flex: 1; padding: .5rem .7rem; border: 1px solid var(--rand); border-radius: 8px; font: inherit; }
+  form.suche input[type=search] { flex: 1; padding: .5rem .7rem; border: 1px solid var(--rand); border-radius: 8px; font: inherit; background: var(--card); color: var(--fg); }
   input, select, button { font: inherit; }
   button { background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: .5rem 1rem; cursor: pointer; }
-  input[type=url], input[type=email], input[type=text], input:not([type]) { padding: .5rem .7rem; border: 1px solid var(--rand); border-radius: 8px; }
-  .hinweis { background: #fff8e1; border: 1px solid #e6d9a0; border-radius: 8px; padding: .5rem .8rem; font-size: .85rem; }
-  table { border-collapse: collapse; width: 100%; background: #fff; border-radius: 10px; }
+  input[type=url], input[type=email], input[type=text], input:not([type]), select { padding: .5rem .7rem; border: 1px solid var(--rand); border-radius: 8px; background: var(--card); color: var(--fg); }
+  .hinweis { background: var(--hinweis-bg); border: 1px solid var(--hinweis-rand); border-radius: 8px; padding: .5rem .8rem; font-size: .85rem; }
+  table { border-collapse: collapse; width: 100%; background: var(--card); border-radius: 10px; }
   td, th { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--rand); font-size: .88rem; }
 </style>
 </head>
@@ -93,8 +123,22 @@ export interface SidebarDaten {
 
 export function sidebar(d: SidebarDaten): string {
   const basis = `/fach/${d.fachCode}`
-  return `<a href="${basis}"><img src="/logo.svg" alt="Atlas by Eduskript" style="width:170px;display:block;margin:0 auto .3rem"></a>
+  const moon = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>`
+  const sun = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>`
+  const person = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`
+  return `<a href="${basis}"><img class="logo-img" src="/logo.svg" alt="Atlas by Eduskript" style="width:170px;display:block;margin:0 auto .3rem"></a>
 <div class="untertitel" style="text-align:center">Unterrichtsmaterialien Schweizer Gymnasien</div>
+<div class="pillbar">
+  <div class="pill">
+    <button onclick="schrift(-10)" title="Schrift verkleinern">A−</button><div class="sep"></div><button onclick="schrift(10)" title="Schrift vergrössern">A+</button>
+  </div>
+  <div class="pill"><button onclick="themeWechseln()" title="Hell/Dunkel"><span class="nur-hell">${moon}</span><span class="nur-dunkel">${sun}</span></button></div>
+  <div class="pill">${
+    d.user
+      ? `<button onclick="document.getElementById('lo').submit()" title="Abmelden">${person}${esc(kürze(d.user.nickname, 14))}</button><form id="lo" method="post" action="/logout" hidden></form>`
+      : `<a class="pbtn" href="/login" title="Anmelden">${person}Anmelden</a>`
+  }</div>
+</div>
 <select onchange="location='/fach/'+this.value">
 ${d.faecher.map((f) => `<option value="${esc(f.code)}"${f.code === d.fachCode ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}
 </select>
@@ -117,7 +161,6 @@ ${tg.kompetenzen
   <a href="/suche">Suche</a>
   <a href="/melden">Quelle melden</a>
   <a href="/quellen">Quellen</a>
-  ${d.user ? `<span class="meta">${esc(d.user.nickname)} · <a href="#" onclick="document.getElementById('lo').submit();return false">abmelden</a></span><form id="lo" method="post" action="/logout" hidden></form>` : `<a href="/login">Anmelden</a>`}
 </div>`
 }
 
