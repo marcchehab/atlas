@@ -126,17 +126,19 @@ export function sidebar(d: SidebarDaten): string {
   const moon = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>`
   const sun = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>`
   const person = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`
+  const login = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>`
+  const plus = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>`
   return `<a href="${basis}"><img class="logo-img" src="/logo.svg" alt="Atlas by Eduskript" style="width:170px;display:block;margin:0 auto .3rem"></a>
 <div class="untertitel" style="text-align:center">Unterrichtsmaterialien Schweizer Gymnasien</div>
 <div class="pillbar">
   <div class="pill">
-    <button onclick="schrift(-10)" title="Schrift verkleinern">A−</button><div class="sep"></div><button onclick="schrift(10)" title="Schrift vergrössern">A+</button>
+    <button onclick="schrift(-10)" title="Schrift verkleinern">A−</button><div class="sep"></div><button onclick="themeWechseln()" title="Hell/Dunkel"><span class="nur-hell">${moon}</span><span class="nur-dunkel">${sun}</span></button><div class="sep"></div><button onclick="schrift(10)" title="Schrift vergrössern">A+</button>
   </div>
-  <div class="pill"><button onclick="themeWechseln()" title="Hell/Dunkel"><span class="nur-hell">${moon}</span><span class="nur-dunkel">${sun}</span></button></div>
+  <div class="pill"><a class="pbtn" href="/melden" title="Material hinzufügen">${plus}</a></div>
   <div class="pill">${
     d.user
-      ? `<button onclick="document.getElementById('lo').submit()" title="Abmelden">${person}${esc(kürze(d.user.nickname, 14))}</button><form id="lo" method="post" action="/logout" hidden></form>`
-      : `<a class="pbtn" href="/login" title="Anmelden">${person}Anmelden</a>`
+      ? `<button onclick="document.getElementById('lo').submit()" title="${esc(d.user.nickname)} — Abmelden">${person}</button><form id="lo" method="post" action="/logout" hidden></form>`
+      : `<a class="pbtn" href="/login" title="Sign in">${login}</a>`
   }</div>
 </div>
 <select onchange="location='/fach/'+this.value">
@@ -235,11 +237,27 @@ export function voteButtons(m: { id: number; score: number; meinVote: number }, 
 </div>`
 }
 
+// Quelle als Kurz-Label: github.com/**user**, sonst **hostname**
+function quellenLabel(url: string): string {
+  try {
+    const u = new URL(url)
+    const host = u.hostname.replace(/^www\./, '')
+    if (host === 'github.com' || host === 'gitlab.com' || host === 'codeberg.org') {
+      const user = u.pathname.split('/')[1] ?? ''
+      return `${host}/<strong>${esc(user)}</strong>`
+    }
+    return `<strong>${esc(host)}</strong>`
+  } catch {
+    return ''
+  }
+}
+
 export function materialKarte(m: MaterialKarte, eingeloggt: boolean): string {
   return `<div class="karte">
   <div style="display:flex;gap:.8rem;align-items:flex-start">
     <div style="flex:1">
       <h3><a href="${esc(m.url)}" rel="noopener">${esc(m.titel)}</a></h3>
+      <div class="meta">${quellenLabel(m.url)}</div>
       <p style="margin:.2rem 0">${esc(m.zusammenfassung)}</p>
       <div>${m.tags.map((t) => `<a class="tag" href="/suche?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}
       ${m.zuordnungen.map((z) => `<a class="tag ziel" href="${z.href}" title="${esc(z.label)}">${esc(z.code)}</a>`).join('')}</div>
