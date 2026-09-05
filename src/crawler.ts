@@ -42,13 +42,17 @@ async function verarbeiteMaterial(
   text: string,
   contentHash: string,
   ctx: KlassifikationsKontext,
-  force = false
+  force = false,
+  istEinzelseite = false
 ): Promise<'neu' | 'aktualisiert' | 'unverändert' | 'abgelehnt'> {
   const vorhanden = await prisma.material.findUnique({ where: { url } })
   if (vorhanden && vorhanden.contentHash === contentHash && !force) return 'unverändert'
 
   const k = await klassifiziere(text, ctx.optionen, ctx.tagNamen)
-  if (k.qualityScore < 20) {
+  // Eine einzelne Webseite, die >=5 ganze Teilgebiete abdecken soll, ist eine
+  // Übersichts-/Portalseite — ablehnen. Ganze Skript-Repos dürfen breit sein.
+  const zuBreit = istEinzelseite && k.zuordnungen.filter((c) => c.startsWith('T')).length >= 5
+  if (k.qualityScore < 20 || zuBreit) {
     if (vorhanden) await prisma.material.delete({ where: { url } }) // war mal gut, ist jetzt Schrott
     return 'abgelehnt'
   }
@@ -178,7 +182,7 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   const gedeckelt = urls.length > MAX_SEITEN
   if (gedeckelt) urls = urls.slice(0, MAX_SEITEN)
 
-  const stat = { neu: 0, aktualisiert: 0, unverändert: 0, abgelehnt: 0, fehler: 0 }
+  const stat = { neu: 0, aktualisiert: 0, unverändert: 0, abgelehnt: 0, duplikat: 0, fehler: 0 }
   const gesehen = new Set<string>()
   for (const url of urls) {
     try {
@@ -186,18 +190,26 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
       const html = res ? (res.ok ? await res.text() : null) : startHtml
       if (html == null) { stat.fehler++; continue }
       gesehen.add(url)
-      const h = hash(html)
-      if (!force) {
-        const vorhanden = await prisma.material.findUnique({ where: { url } })
-        if (vorhanden && vorhanden.contentHash === h) { stat.unverändert++; continue }
-      }
+      // Hash über den extrahierten Text, nicht das rohe HTML: stabil gegen kosmetische
+      // HTML-Änderungen und Grundlage der Duplikat-Erkennung (SPAs liefern auf jeder
+      // URL dasselbe serverseitige Gerüst — z.B. Eduskript-Sites, solange deren
+      // Markdown-Export fehlt).
       let text: string
       try { text = await extract(html) } catch { text = stripTags(html) }
-      stat[await verarbeiteMaterial(quelle.id, url, text, h, ctx, force)]++
+      const h = hash(text)
+      const vorhanden = await prisma.material.findUnique({ where: { url } })
+      if (vorhanden && vorhanden.contentHash === h && !force) { stat.unverändert++; continue }
+      const dupe = await prisma.material.findFirst({ where: { quelleId: quelle.id, contentHash: h, url: { not: url } } })
+      if (dupe) {
+        if (vorhanden) await prisma.material.delete({ where: { url } })
+        stat.duplikat++
+        continue
+      }
+      stat[await verarbeiteMaterial(quelle.id, url, text, h, ctx, force, true)]++
     } catch { stat.fehler++ }
   }
   const aufraeumen = await raeumeAuf(quelle.id, gesehen, gedeckelt)
-  return `${urls.length} Seiten${gedeckelt ? ` (gedeckelt, ${MAX_SEITEN}/Nacht)` : ''} via ${sitemap ? 'Sitemap' : 'Links'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
+  return `${urls.length} Seiten${gedeckelt ? ` (gedeckelt, ${MAX_SEITEN}/Nacht)` : ''} via ${sitemap ? 'Sitemap' : 'Links'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
 }
 
 // ---------- Git-Connector: Repo klonen, Markdown-Dateien als Materialien ----------
