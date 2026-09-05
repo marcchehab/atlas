@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  nickname  String
+  email     String    @unique
+  link      String?
+  createdAt DateTime  @default(now())
+  quellen   Quelle[]
+  upvotes   Upvote[]
+  tagVotes  TagVote[]
+}
+
+// Eine Quelle ist nur der Container, aus dem der Crawler Materialien zieht.
+model Quelle {
+  id            Int        @id @default(autoincrement())
+  url           String     @unique // normalisiert
+  typ           String // WEBSITE | GIT | CLOUD
+  fach          String? // optionaler Hinweis der Melder:in
+  titel         String?
+  beschreibung  String?
+  qualityScore  Int? // 0–100 von der AI; <20 = nicht aufgenommen
+  todesCounter  Int        @default(0) // fehlgeschlagene Crawl-Nächte in Folge; >=3 = ausgeblendet
+  etag          String?
+  contentHash   String?
+  lastCrawledAt DateTime?
+  createdAt     DateTime   @default(now())
+  melder        User       @relation(fields: [melderId], references: [id])
+  melderId      Int
+  materialien   Material[]
+}
+
+model Lernziel {
+  id       Int        @id @default(autoincrement())
+  code     String     @unique // z.B. "INF.GF.1.1"
+  fach     String
+  bereich  String
+  text     String
+  eintraege MaterialLernziel[]
+}
+
+model Material {
+  id             Int                @id @default(autoincrement())
+  quelle         Quelle             @relation(fields: [quelleId], references: [id], onDelete: Cascade)
+  quelleId       Int
+  url            String             @unique
+  titel          String
+  zusammenfassung String
+  contentHash    String?
+  createdAt      DateTime           @default(now())
+  lernziele      MaterialLernziel[]
+  tags           MaterialTag[]
+  upvotes        Upvote[]
+}
+
+// Ein Material kann mehrere Lernziele abdecken → pro Ziel ein Eintrag.
+model MaterialLernziel {
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  materialId Int
+  lernziel   Lernziel @relation(fields: [lernzielId], references: [id])
+  lernzielId Int
+
+  @@id([materialId, lernzielId])
+}
+
+model Tag {
+  id       Int           @id @default(autoincrement())
+  name     String        @unique
+  status   String        @default("AKTIV") // AKTIV | VORSCHLAG (AI-Vorschlag, wird mit 3 Votes AKTIV)
+  material MaterialTag[]
+  votes    TagVote[]
+}
+
+model MaterialTag {
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  materialId Int
+  tag        Tag      @relation(fields: [tagId], references: [id])
+  tagId      Int
+
+  @@id([materialId, tagId])
+}
+
+model Upvote {
+  user       User     @relation(fields: [userId], references: [id])
+  userId     Int
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  materialId Int
+
+  @@id([userId, materialId])
+}
+
+model TagVote {
+  user   User @relation(fields: [userId], references: [id])
+  userId Int
+  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  tagId  Int
+
+  @@id([userId, tagId])
+}
