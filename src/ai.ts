@@ -29,12 +29,13 @@ Lehrplan-Raster (T… = ganzes Teilgebiet, K… = einzelne Kompetenz):
 ${optionen.map((o) => `${o.code}: ${o.label}`).join('\n')}
 
 Erlaubte Tags: ${tagNamen.join(', ')}
+Tag-Regeln: Werkzeug-Tags (python, java, blender, robotik …) nur, wenn das Werkzeug im Material aktiv verwendet wird. «theorie» nur für primär theoretische Materialien ohne Übungs-/Praxisteil. «formell» nur bei mathematisch-formaler Darstellung (Definitionen, Beweise, Formeln). «spielerisch» nur bei explizit spielerischem Zugang. Im Zweifel ein Tag weglassen.
 
 Aufgaben:
 1. qualityScore 0–100: Taugt das als konkretes Unterrichtsmaterial fürs Gymnasium? (<20 = untauglich; Latte tief ansetzen, im Zweifel aufnehmen. Untauglich sind aber immer: Navigations-, Index- und Impressumsseiten sowie Start-/Portal-/Übersichtsseiten, die ein Angebot nur beschreiben oder verlinken statt selbst Unterrichtsinhalt zu sein.)
 2. titel: prägnanter Titel des Materials
 3. zusammenfassung: 2–3 Sätze auf Deutsch
-4. zuordnungen: abgedeckte Kompetenzen (K…); nur wenn ein Material ein Teilgebiet breit abdeckt, stattdessen dessen T…-Code. Leer, wenn nichts passt. Nur zuordnen, was der Text selbst unterrichtet — nicht, was er bloß erwähnt oder verlinkt.
+4. zuordnungen: abgedeckte Kompetenzen (K…); nur wenn ein Material ein Teilgebiet breit abdeckt, stattdessen dessen T…-Code. Leer, wenn nichts passt. Nur zuordnen, was der Text selbst unterrichtet — nicht, was er bloß erwähnt oder verlinkt. Kompetenzen mit Werkzeug-Bezug (z.B. «mittels Programmierung») nur, wenn dieses Werkzeug im Material tatsächlich eingesetzt wird — ein Tutorial zu einer Kreativ-Software ohne Programmieranteil erfüllt keine Programmier-Kompetenz.
 5. tags: passende Tags aus der erlaubten Liste
 6. neueTagVorschlaege: meist leer — nur ausnahmsweise max. 2 neue Tags (kleingeschrieben, generisch wiederverwendbar wie die erlaubten Tags), wenn ein zentraler Aspekt durch kein erlaubtes Tag abbildbar ist. Keine Themen-Tags (dafür sind die Lernziele da), keine Synonyme.
 
