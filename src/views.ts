@@ -38,6 +38,17 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
     localStorage.setItem('fontsize', f)
     document.documentElement.style.fontSize = f + '%'
   }
+  // Quellen-Filter: persistiert in localStorage, wirkt clientseitig auf die Karten
+  function quellenFilter() { try { return JSON.parse(localStorage.getItem('quellenFilter')) || [] } catch { return [] } }
+  function setzeQuellenFilter(a) { localStorage.setItem('quellenFilter', JSON.stringify(a)); wendeFilterAn() }
+  function quelleToggle(k) { const a = quellenFilter(); setzeQuellenFilter(a.includes(k) ? a.filter((x) => x !== k) : [...a, k]) }
+  function quelleWaehlen(k) { const a = quellenFilter(); setzeQuellenFilter(a.length === 1 && a[0] === k ? [] : [k]) }
+  function wendeFilterAn() {
+    const a = quellenFilter()
+    document.querySelectorAll('.karte[data-quelle]').forEach((el) => { el.style.display = !a.length || a.includes(el.dataset.quelle) ? '' : 'none' })
+    document.querySelectorAll('.qchip').forEach((c) => c.classList.toggle('aktiv', a.includes(c.dataset.q)))
+  }
+  document.addEventListener('DOMContentLoaded', wendeFilterAn)
 </script>
 <style>
   :root { --primary: hsl(221.2 83.2% 53.3%); --bg: #f5f5f5; --card: #fff; --fg: #262626; --rand: #e4e4e4; --meta: #737373; --chip: #eef3fa; --chip-ziel: #f3eefa; --hinweis-bg: #fff8e1; --hinweis-rand: #e6d9a0; }
@@ -59,6 +70,11 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
   .pillbar .sep { width: 1px; background: var(--rand); }
   .nur-dunkel { display: none; } [data-theme="dark"] .nur-dunkel { display: flex; } [data-theme="dark"] .nur-hell { display: none; }
   .nur-hell { display: flex; }
+  .qfilter { margin-bottom: 1rem; display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+  .qchip { border: 1px solid var(--rand); background: var(--card); color: var(--fg); border-radius: 999px; padding: .1rem .7rem; font-size: .78rem; cursor: pointer; }
+  .qchip:hover { background: var(--bg); }
+  .qchip.aktiv { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .karte .quelle-link { color: var(--meta); } .karte .quelle-link:hover { color: var(--fg); text-decoration: none; }
 
   aside .logo { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 1.5rem; color: var(--primary); }
   aside .by { font-family: Inter, sans-serif; font-size: 11px; color: rgb(115 115 115 / .4); margin-left: .3rem; }
@@ -237,6 +253,18 @@ export function voteButtons(m: { id: number; score: number; meinVote: number }, 
 </div>`
 }
 
+// Gruppen-Schlüssel einer URL: "github.com/user" bzw. Hostname
+export function quellenKey(url: string): string {
+  try {
+    const u = new URL(url)
+    const host = u.hostname.replace(/^www\./, '')
+    if (['github.com', 'gitlab.com', 'codeberg.org'].includes(host)) return `${host}/${u.pathname.split('/').filter(Boolean)[0] ?? ''}`
+    return host
+  } catch {
+    return url
+  }
+}
+
 // Quelle als Kurz-Label: github.com/**user**, sonst **hostname**
 export function quellenLabel(url: string): string {
   try {
@@ -252,12 +280,20 @@ export function quellenLabel(url: string): string {
   }
 }
 
+// Quellen-Filterleiste: Auswahl liegt in localStorage und überlebt Navigation.
+export function filterLeiste(gruppen: string[]): string {
+  if (gruppen.length < 2) return ''
+  return `<div class="qfilter meta">Quellen:
+${gruppen.map((g) => `<button class="qchip" data-q="${esc(g)}" onclick="quelleToggle('${esc(g)}')">${esc(g)}</button>`).join('')}
+</div>`
+}
+
 export function materialKarte(m: MaterialKarte, eingeloggt: boolean): string {
-  return `<div class="karte">
+  return `<div class="karte" data-quelle="${esc(quellenKey(m.url))}">
   <div style="display:flex;gap:.8rem;align-items:flex-start">
     <div style="flex:1">
       <h3><a href="${esc(m.url)}" rel="noopener">${esc(m.titel)}</a></h3>
-      <div class="meta">${quellenLabel(m.url)}</div>
+      <div class="meta"><a href="#" class="quelle-link" title="Nur diese Quelle zeigen" onclick="quelleWaehlen('${esc(quellenKey(m.url))}');return false">${quellenLabel(m.url)}</a></div>
       <p style="margin:.2rem 0">${esc(m.zusammenfassung)}</p>
       <div>${m.tags.map((t) => `<a class="tag" href="/suche?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}
       ${m.zuordnungen.map((z) => `<a class="tag ziel" href="${z.href}" title="${esc(z.label)}">${esc(z.code)}</a>`).join('')}</div>

@@ -4,7 +4,7 @@ import path from 'node:path'
 import { prisma, initDb, normalizeUrl, erkenneTyp } from './db.js'
 import { crawlQuelle } from './crawler.js'
 import * as auth from './auth.js'
-import { layout, esc, kürze, sidebar, materialKarte, voteButtons, loginSeite, MaterialKarte } from './views.js'
+import { layout, esc, kürze, sidebar, materialKarte, voteButtons, loginSeite, filterLeiste, quellenKey, MaterialKarte } from './views.js'
 
 const app = express()
 const SECRET = process.env.SESSION_SECRET ?? 'dev'
@@ -94,6 +94,11 @@ async function ladeMaterialKarten(where: object, userId: number | null, fachCode
     .sort((a, b) => b.score - a.score || b.aiScore - a.aiScore)
 }
 
+async function alleQuellenGruppen(): Promise<string[]> {
+  const quellen = await prisma.quelle.findMany({ select: { url: true } })
+  return [...new Set(quellen.map((q) => quellenKey(q.url)))].sort()
+}
+
 app.get('/', (_req, res) => res.redirect(`/fach/${STANDARD_FACH}`))
 
 // Fach-Übersicht
@@ -108,6 +113,7 @@ app.get('/fach/:fach', async (req, res) => {
 Links ein Teilgebiet oder eine Kompetenz wählen — oder <a href="/suche">Volltextsuche</a>.</p>
 <form class="suche" action="/suche"><input type="search" name="q" placeholder="Volltextsuche, z.B. binärsystem arbeitsblatt"><button>Suchen</button></form>
 <h2>Alle Materialien (${neueste.length})</h2>
+${filterLeiste(await alleQuellenGruppen())}
 ${neueste.length ? neueste.map((k) => materialKarte(k, !!user)).join('\n') : '<p>Noch keine Materialien. <a href="/melden">Quelle melden?</a></p>'}`
   res.send(layout(fach.name, side, body, user))
 })
@@ -125,6 +131,7 @@ app.get('/fach/:fach/t/:code', async (req, res) => {
   const body = `<h1>${esc(tg.code)} ${esc(tg.name)}</h1>
 <p class="meta">${tg.lerngebiet.nummer}. ${esc(tg.lerngebiet.name)}</p>
 <ul class="meta">${tg.kompetenzen.map((k) => `<li>${esc(k.text)}</li>`).join('')}</ul>
+${filterLeiste(await alleQuellenGruppen())}
 ${karten.length ? karten.map((k) => materialKarte(k, !!user)).join('\n') : '<p>Noch keine Materialien. <a href="/melden">Quelle melden?</a></p>'}`
   res.send(layout(`${tg.code} ${tg.name}`, side, body, user))
 })
@@ -142,6 +149,7 @@ app.get('/fach/:fach/k/:code', async (req, res) => {
   const body = `<h1>${esc(ko.code)}</h1>
 <p>Die Maturandinnen und Maturanden können <strong>${esc(ko.text)}</strong>.</p>
 <p class="meta"><a href="/fach/${esc(req.params.fach)}/t/${esc(ko.teilgebiet.code)}">${esc(ko.teilgebiet.code)} ${esc(ko.teilgebiet.name)}</a> · ${ko.teilgebiet.lerngebiet.nummer}. ${esc(ko.teilgebiet.lerngebiet.name)}</p>
+${filterLeiste(await alleQuellenGruppen())}
 ${karten.length ? karten.map((k) => materialKarte(k, !!user)).join('\n') : '<p>Noch keine Materialien. <a href="/melden">Quelle melden?</a></p>'}`
   res.send(layout(ko.code, side, body, user))
 })
@@ -155,13 +163,30 @@ app.get('/suche', async (req, res) => {
   if (tag) {
     karten = await ladeMaterialKarten({ tags: { some: { tag: { name: tag } } } }, user?.id ?? null, STANDARD_FACH)
   } else if (q) {
-    // FTS5 über $queryRaw; Anfrage in Anführungszeichen = keine FTS-Syntax-Injektion
-    const ftsQuery = q.split(/\s+/).map((w) => `"${w.replace(/"/g, '')}"`).join(' ')
-    const rows = await prisma.$queryRawUnsafe<{ id: number }[]>(
-      `SELECT rowid AS id FROM material_fts WHERE material_fts MATCH ? ORDER BY rank LIMIT 50`,
-      ftsQuery
-    )
-    karten = await ladeMaterialKarten({ id: { in: rows.map((r) => Number(r.id)) } }, user?.id ?? null, STANDARD_FACH)
+    // Suchwörter, die auf eine Quelle passen ("oinf.ch simulation"), werden zum Quellen-Filter;
+    // der Rest geht in die FTS5-Volltextsuche.
+    const gruppen = await alleQuellenGruppen()
+    const quellTreffer: string[] = []
+    const textWoerter: string[] = []
+    for (const wort of q.split(/\s+/)) {
+      const g = gruppen.find((x) => x.toLowerCase().includes(wort.toLowerCase()))
+      if (g && wort.length >= 4) quellTreffer.push(g)
+      else textWoerter.push(wort)
+    }
+    const quellFilter = quellTreffer.length
+      ? { OR: quellTreffer.map((g) => ({ url: { contains: g } })) }
+      : {}
+    if (textWoerter.length) {
+      // FTS5 über $queryRaw; Anfrage in Anführungszeichen = keine FTS-Syntax-Injektion
+      const ftsQuery = textWoerter.map((w) => `"${w.replace(/"/g, '')}"`).join(' ')
+      const rows = await prisma.$queryRawUnsafe<{ id: number }[]>(
+        `SELECT rowid AS id FROM material_fts WHERE material_fts MATCH ? ORDER BY rank LIMIT 100`,
+        ftsQuery
+      )
+      karten = await ladeMaterialKarten({ id: { in: rows.map((r) => Number(r.id)) }, ...quellFilter }, user?.id ?? null, STANDARD_FACH)
+    } else {
+      karten = await ladeMaterialKarten(quellFilter, user?.id ?? null, STANDARD_FACH)
+    }
   }
   const side = await baueSidebar(STANDARD_FACH, undefined, user)
   const body = `<h1>Suche</h1>
