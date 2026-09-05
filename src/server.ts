@@ -1,6 +1,7 @@
 import express from 'express'
 import cookieParser from 'cookie-parser'
 import path from 'node:path'
+import fs from 'node:fs/promises'
 import { prisma, initDb, normalizeUrl, erkenneTyp } from './db.js'
 import { crawlQuelle } from './crawler.js'
 import * as auth from './auth.js'
@@ -299,12 +300,48 @@ app.post('/melden', async (req, res) => {
       'atlas-rate-limit'
     ).catch((e) => console.error('Rate-Limit-Mail fehlgeschlagen:', e))
   }
-  const resultat = await crawlQuelle(quelle.id) // Prototyp: synchron; produktiv im nächtlichen Worker
-  const body = `<h1>Gemeldet</h1>
-<p><code>${esc(url)}</code></p>
-<p>Crawl-Resultat: <strong>${esc(resultat)}</strong></p>
-<p><a href="/">Zur Übersicht</a> · <a href="/quellen">Alle Quellen</a></p>`
-  res.send(layout('Gemeldet', side, body, user))
+  // Crawl im Hintergrund; die Status-Seite pollt den Fortschritt
+  crawlLaeufe.set(quelle.id, { fertig: false, start: Date.now() })
+  crawlQuelle(quelle.id)
+    .then((r) => crawlLaeufe.set(quelle.id, { fertig: true, resultat: r, start: Date.now() }))
+    .catch((e) => crawlLaeufe.set(quelle.id, { fertig: true, resultat: `Fehler: ${(e as Error).message}`, start: Date.now() }))
+  res.redirect(`/quelle/${quelle.id}/status`)
+})
+
+// Laufende Melde-Crawls (in-memory; nach Neustart zeigt die Status-Seite den DB-Stand)
+const crawlLaeufe = new Map<number, { fertig: boolean; resultat?: string; start: number }>()
+
+async function crawlStatusFragment(quelleId: number): Promise<string> {
+  const lauf = crawlLaeufe.get(quelleId)
+  const anzahl = await prisma.material.count({ where: { quelleId, qualityScore: { gte: 20 } } })
+  if (lauf && !lauf.fertig) {
+    const sek = Math.round((Date.now() - lauf.start) / 1000)
+    return `<div id="crawl-status" hx-get="/quelle/${quelleId}/status/fragment" hx-trigger="every 2s" hx-swap="outerHTML">
+<p>⏳ Atlas crawlt die Quelle … <strong>${anzahl}</strong> Materialien bisher (${sek}s)</p>
+<p class="meta">Du kannst dieses Fenster schliessen — der Crawl läuft auf dem Server weiter.</p>
+</div>`
+  }
+  const quelle = await prisma.quelle.findUnique({ where: { id: quelleId } })
+  return `<div id="crawl-status">
+<p>✅ Fertig: <strong>${anzahl}</strong> Materialien aufgenommen${lauf?.resultat ? ` <span class="meta">(${esc(lauf.resultat)})</span>` : ''}</p>
+${quelle && quelle.todesCounter > 0 ? '<p class="hinweis">Die Quelle war nicht erreichbar — bitte URL prüfen.</p>' : ''}
+<p><a href="/">Zur Übersicht</a> · <a href="/quellen">Alle Quellen</a></p>
+</div>`
+}
+
+app.get('/quelle/:id/status', async (req, res) => {
+  const user = await aktuellerUser(req)
+  const side = await baueSidebar(STANDARD_FACH, undefined, user)
+  const quelle = await prisma.quelle.findUnique({ where: { id: Number(req.params.id) } })
+  if (!quelle) return res.status(404).send('Quelle nicht gefunden')
+  const body = `<h1>Quelle gemeldet</h1>
+<p><code>${esc(quelle.url)}</code></p>
+${await crawlStatusFragment(quelle.id)}`
+  res.send(layout('Quelle gemeldet', side, body, user))
+})
+
+app.get('/quelle/:id/status/fragment', async (req, res) => {
+  res.send(await crawlStatusFragment(Number(req.params.id)))
 })
 
 app.get('/quellen', async (req, res) => {
@@ -324,14 +361,18 @@ app.get('/quellen', async (req, res) => {
     gruppen.get(key)!.push(q)
   }
   const zeile = (q: (typeof quellen)[0]) =>
-    `<tr><td><a href="${esc(q.url)}" rel="noopener">${esc(kürze(q.titel ?? q.url, 60))}</a></td><td>${esc(q.typ)}</td><td>${q.qualityScore ?? '–'}</td><td>${q.todesCounter}</td><td>${q._count.materialien}</td><td>${esc(q.melder.nickname)}</td></tr>`
+    `<tr><td><a href="${esc(q.url)}" rel="noopener">${esc(kürze(q.titel ?? q.url, 60))}</a></td><td>${esc(q.typ)}</td><td>${q.qualityScore ?? '–'}</td><td>${q.todesCounter}</td><td>${q._count.materialien}</td><td>${esc(q.melder.nickname)}</td>${
+      user && (user.istAdmin || q.melderId === user.id)
+        ? `<td><form hx-post="/quelle/${q.id}/loeschen" hx-target="closest tr" hx-swap="outerHTML" hx-confirm="Quelle samt ${q._count.materialien} Materialien und Votes löschen?"><button style="background:#b3261e">Löschen</button></form></td>`
+        : ''
+    }</tr>`
   const body = `<h1>Quellen</h1>
 ${[...gruppen.entries()]
   .map(([key, qs]) => {
     const mats = qs.reduce((s, q) => s + q._count.materialien, 0)
     return `<details ${qs.length === 1 ? '' : 'open'} style="margin-bottom:.6rem">
 <summary style="cursor:pointer;padding:.3rem 0"><strong>${esc(key)}</strong> <span class="meta">${qs.length} ${qs.length === 1 ? 'Quelle' : 'Quellen'} · ${mats} Materialien</span></summary>
-<table><tr><th>URL</th><th>Typ</th><th>Score</th><th>☠</th><th>Materialien</th><th>Melder:in</th></tr>
+<table><tr><th>URL</th><th>Typ</th><th>Score</th><th>☠</th><th>Materialien</th><th>Melder:in</th>${user ? '<th></th>' : ''}</tr>
 ${qs.map(zeile).join('\n')}</table>
 </details>`
   })
@@ -357,6 +398,21 @@ app.post('/vote/:id/:richtung', async (req, res) => {
   }
   const agg = await prisma.upvote.aggregate({ where: { materialId }, _sum: { wert: true } })
   res.send(voteButtons({ id: materialId, score: agg._sum.wert ?? 0, meinVote }, true))
+})
+
+// Quelle löschen: Admins jede, Melder:innen ihre eigenen.
+// Prisma → Materialien/Zuordnungen/Votes cascaden korrekt; Git-Klon wird mitgelöscht.
+app.post('/quelle/:id/loeschen', async (req, res) => {
+  const user = await aktuellerUser(req)
+  if (!user) return res.status(401).send('Nicht angemeldet')
+  const id = Number(req.params.id)
+  const quelle = await prisma.quelle.findUnique({ where: { id } })
+  if (!quelle) return res.status(404).send('Quelle nicht gefunden')
+  if (!user.istAdmin && quelle.melderId !== user.id) return res.status(403).send('Nur eigene Quellen.')
+  await prisma.quelle.delete({ where: { id } })
+  await fs.rm(path.join(process.cwd(), 'data', 'git', String(id)), { recursive: true, force: true })
+  if (req.headers['hx-request']) return res.send('')
+  res.redirect('/quellen')
 })
 
 // Tag-Vorschlags-Vote (HTMX-Toggle); 3 Stimmen machen den Tag offiziell
