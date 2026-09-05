@@ -76,8 +76,10 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
   main { flex: 1; padding: 1.5rem 2rem; max-width: 56rem; }
 
   .pillbar { display: flex; justify-content: center; gap: .5rem; margin: .6rem 0 1rem; }
-  .pillbar .pill { display: flex; align-items: center; border: 1px solid var(--rand); background: var(--card); border-radius: 8px; overflow: hidden; }
+  .pillbar .pill { display: flex; align-items: center; border: 1px solid var(--rand); background: var(--card); border-radius: 999px; overflow: hidden; }
   .pillbar button, .pillbar a.pbtn { border: none; background: none; color: var(--fg); font: inherit; font-size: .82rem; padding: .35rem .55rem; cursor: pointer; display: flex; align-items: center; gap: .3rem; text-decoration: none; }
+  .pillbar .pill.kompakt button { font-size: .7rem; padding: .2rem .45rem; }
+  .pillbar .pill.kompakt svg { width: 12px; height: 12px; }
   .pillbar button:hover, .pillbar a.pbtn:hover { background: var(--bg); }
   .pillbar .sep { width: 1px; background: var(--rand); }
   .pillbar .melden-pill { background: var(--primary); border-color: var(--primary); }
@@ -163,7 +165,7 @@ export function sidebar(d: SidebarDaten): string {
   return `<a href="${basis}" class="logo-svg" aria-label="Atlas" style="width:170px;display:block;margin:0 auto .3rem">${LOGO_INLINE}</a>
 <div class="untertitel" style="text-align:center">Unterrichtsmaterialien Schweizer Gymnasien</div>
 <div class="pillbar">
-  <div class="pill">
+  <div class="pill kompakt">
     <button onclick="schrift(-10)" title="Schrift verkleinern">A−</button><div class="sep"></div><button onclick="themeWechseln()" title="Hell/Dunkel"><span class="nur-hell">${moon}</span><span class="nur-dunkel">${sun}</span></button><div class="sep"></div><button onclick="schrift(10)" title="Schrift vergrössern">A+</button>
   </div>
   <div class="pill">${
