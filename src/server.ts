@@ -33,8 +33,11 @@ async function baueSidebar(fachCode: string, aktiv: string | undefined, user: Nu
           teilgebiete: {
             orderBy: { code: 'asc' },
             include: {
-              _count: { select: { zuordnungen: true } },
-              kompetenzen: { orderBy: { code: 'asc' }, include: { _count: { select: { zuordnungen: true } } } },
+              _count: { select: { zuordnungen: { where: { material: { fehlCounter: { lt: 3 } } } } } },
+              kompetenzen: {
+                orderBy: { code: 'asc' },
+                include: { _count: { select: { zuordnungen: { where: { material: { fehlCounter: { lt: 3 } } } } } } },
+              },
             },
           },
         },
@@ -63,7 +66,7 @@ async function baueSidebar(fachCode: string, aktiv: string | undefined, user: Nu
 
 async function ladeMaterialKarten(where: object, userId: number | null, fachCode: string): Promise<MaterialKarte[]> {
   const mats = await prisma.material.findMany({
-    where: { ...where, quelle: { todesCounter: { lt: 3 } } },
+    where: { ...where, fehlCounter: { lt: 3 }, quelle: { todesCounter: { lt: 3 } } },
     include: {
       tags: { include: { tag: true } },
       zuordnungen: { include: { teilgebiet: true, kompetenz: true } },

@@ -85,6 +85,7 @@ model Material {
   titel          String
   zusammenfassung String
   qualityScore   Int? // pro Material — eine Quelle kann gute und schwache Seiten enthalten
+  fehlCounter    Int                @default(0) // Crawls in Folge, in denen die URL fehlte; >=3 = ausgeblendet
   contentHash    String?
   createdAt      DateTime           @default(now())
   zuordnungen    MaterialZuordnung[]

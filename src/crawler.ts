@@ -86,6 +86,42 @@ async function verarbeiteMaterial(
   return vorhanden ? 'aktualisiert' : 'neu'
 }
 
+// Nach dem Crawl: verschwundene URLs behandeln. Gleicher Content-Hash innerhalb derselben
+// Quelle = Umzug (Votes wandern mit). AI-Titel wäre der intuitivere Schlüssel, ist aber
+// instabil — dieselbe Seite bekommt bei Re-Klassifikation leicht andere Titel. Umzug mit
+// gleichzeitiger Inhaltsänderung fällt auf den fehlCounter zurück: hochzählen, ab 3
+// Crawls in Folge ausgeblendet. Bei gedeckelten Crawls nicht anwendbar — fehlende URLs
+// könnten schlicht hinter dem Deckel liegen.
+async function raeumeAuf(quelleId: number, gesehen: Set<string>, gedeckelt: boolean): Promise<string> {
+  if (gedeckelt) return ''
+  await prisma.material.updateMany({ where: { quelleId, url: { in: [...gesehen] } }, data: { fehlCounter: 0 } })
+  const verschwunden = await prisma.material.findMany({ where: { quelleId, url: { notIn: [...gesehen] } } })
+  let umzuege = 0
+  let verwaist = 0
+  for (const alt of verschwunden) {
+    const neu = alt.contentHash
+      ? await prisma.material.findFirst({
+          where: { quelleId, url: { in: [...gesehen] }, contentHash: alt.contentHash, id: { not: alt.id } },
+        })
+      : null
+    if (neu) {
+      // Votes zügeln (Konflikt = User hat beide gevotet → alten Vote verwerfen)
+      const votes = await prisma.upvote.findMany({ where: { materialId: alt.id } })
+      for (const v of votes) {
+        await prisma.upvote
+          .update({ where: { userId_materialId: { userId: v.userId, materialId: alt.id } }, data: { materialId: neu.id } })
+          .catch(() => {})
+      }
+      await prisma.material.delete({ where: { id: alt.id } })
+      umzuege++
+    } else {
+      await prisma.material.update({ where: { id: alt.id }, data: { fehlCounter: alt.fehlCounter + 1 } })
+      verwaist++
+    }
+  }
+  return umzuege || verwaist ? `, ${umzuege} umgezogen, ${verwaist} verschollen` : ''
+}
+
 // ---------- Website-Connector: Sitemap bevorzugt, sonst Links der Startseite ----------
 
 const BINAER = /\.(pdf|zip|png|jpe?g|gif|svg|ico|css|js|mp[34]|webm|woff2?|xml|txt)(\?|$)/i
@@ -143,11 +179,13 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   if (gedeckelt) urls = urls.slice(0, MAX_SEITEN)
 
   const stat = { neu: 0, aktualisiert: 0, unverändert: 0, abgelehnt: 0, fehler: 0 }
+  const gesehen = new Set<string>()
   for (const url of urls) {
     try {
       const res = url === quelle.url ? null : await fetchSeite(url)
       const html = res ? (res.ok ? await res.text() : null) : startHtml
       if (html == null) { stat.fehler++; continue }
+      gesehen.add(url)
       const h = hash(html)
       if (!force) {
         const vorhanden = await prisma.material.findUnique({ where: { url } })
@@ -158,7 +196,8 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
       stat[await verarbeiteMaterial(quelle.id, url, text, h, ctx, force)]++
     } catch { stat.fehler++ }
   }
-  return `${urls.length} Seiten${gedeckelt ? ` (gedeckelt, ${MAX_SEITEN}/Nacht)` : ''} via ${sitemap ? 'Sitemap' : 'Links'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler`
+  const aufraeumen = await raeumeAuf(quelle.id, gesehen, gedeckelt)
+  return `${urls.length} Seiten${gedeckelt ? ` (gedeckelt, ${MAX_SEITEN}/Nacht)` : ''} via ${sitemap ? 'Sitemap' : 'Links'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
 }
 
 // ---------- Git-Connector: Repo klonen, Markdown-Dateien als Materialien ----------
@@ -190,15 +229,18 @@ async function crawlGit(quelle: { id: number; url: string; contentHash: string |
 
   if (mdDateien.length >= 3) {
     // Markdown-Sammlung: jede Datei ein Material
+    const gesehen = new Set<string>()
     for (const datei of mdDateien.slice(0, MAX_SEITEN)) {
       try {
         const text = await fs.readFile(path.join(dir, datei), 'utf8')
         const url = `${quelle.url.replace(/\.git$/, '')}/blob/HEAD/${datei}` // GitHub/GitLab-kompatibel
+        gesehen.add(url)
         stat[await verarbeiteMaterial(quelle.id, url, text, hash(text), ctx, force)]++
       } catch { stat.fehler++ }
     }
     await prisma.quelle.update({ where: { id: quelle.id }, data: { contentHash: head } })
-    return `${Math.min(mdDateien.length, MAX_SEITEN)} Markdown-Dateien: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler`
+    const aufraeumen = await raeumeAuf(quelle.id, gesehen, mdDateien.length > MAX_SEITEN)
+    return `${Math.min(mdDateien.length, MAX_SEITEN)} Markdown-Dateien: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
   }
 
   // Sonst (z.B. LaTeX-Skript): ganzes Repo als ein Material, Text aus README + .tex/.md
@@ -216,7 +258,8 @@ async function crawlGit(quelle: { id: number; url: string; contentHash: string |
   const url = quelle.url.replace(/\.git$/, '')
   stat[await verarbeiteMaterial(quelle.id, url, text, hash(text), ctx, force)]++
   await prisma.quelle.update({ where: { id: quelle.id }, data: { contentHash: head } })
-  return `1 Repo-Material (${mdDateien.length} md, ${texDateien.length} tex): ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.abgelehnt} abgelehnt`
+  const aufraeumen = await raeumeAuf(quelle.id, new Set([url]), false)
+  return `1 Repo-Material (${mdDateien.length} md, ${texDateien.length} tex): ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.abgelehnt} abgelehnt${aufraeumen}`
 }
 
 // ---------- Einstieg ----------
