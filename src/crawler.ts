@@ -78,7 +78,9 @@ async function verarbeiteMaterial(
   await prisma.materialTag.deleteMany({ where: { materialId: material.id } })
   await prisma.materialTag.createMany({ data: tagIds.map((t) => ({ materialId: material.id, tagId: t.id })) })
 
-  for (const name of k.neueTagVorschlaege.slice(0, 2)) {
+  for (const roh of k.neueTagVorschlaege.slice(0, 2)) {
+    const name = roh.toLowerCase().trim()
+    if (name.length < 3 || name.length > 30) continue
     await prisma.tag.upsert({ where: { name }, create: { name, status: 'VORSCHLAG' }, update: {} })
   }
   return vorhanden ? 'aktualisiert' : 'neu'

@@ -101,7 +101,7 @@ app.get('/fach/:fach', async (req, res) => {
   const side = await baueSidebar(fach.code, undefined, user)
   const neueste = await ladeMaterialKarten({}, user?.id ?? null, fach.code)
   const body = `<h1>${esc(fach.name)}</h1>
-<p>Raster: <a href="${esc(fach.lehrplanUrl ?? '#')}" rel="noopener">Rahmenlehrplan Maturitätsschulen (EDK 2024)</a>, feinste Kompetenz-Ebene.
+<p>Materialien geordnet nach dem <a href="${esc(fach.lehrplanUrl ?? '#')}" rel="noopener">Rahmenlehrplan Maturitätsschulen (EDK 2024)</a>.
 Links ein Teilgebiet oder eine Kompetenz wählen — oder <a href="/suche">Volltextsuche</a>.</p>
 <form class="suche" action="/suche"><input type="search" name="q" placeholder="Volltextsuche, z.B. binärsystem arbeitsblatt"><button>Suchen</button></form>
 <h2>Alle Materialien (${neueste.length})</h2>
