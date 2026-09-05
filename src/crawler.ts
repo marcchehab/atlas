@@ -7,7 +7,7 @@ import { extract, stripTags } from './extract.js'
 import { klassifiziere, ZuordnungsOption } from './ai.js'
 
 const TODES_SCHWELLE = 3
-const MAX_SEITEN = 40 // Deckel pro Quelle und Nacht — Rest kommt in späteren Läufen
+const MAX_SEITEN = 200 // Deckel pro Quelle und Nacht — Rest kommt in späteren Läufen
 
 const hash = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
 
