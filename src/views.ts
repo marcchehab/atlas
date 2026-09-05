@@ -310,7 +310,9 @@ export function materialKarte(m: MaterialKarte, eingeloggt: boolean): string {
   <div style="display:flex;gap:.8rem;align-items:flex-start">
     <div style="flex:1">
       <h3><a href="${esc(m.url)}" rel="noopener">${esc(m.titel)}</a></h3>
-      <div class="meta"><a href="#" class="quelle-link" title="Nur diese Quelle zeigen" onclick="quelleWaehlen('${esc(quellenKey(m.url))}');return false">${quellenLabel(m.url)}</a></div>
+      <div class="meta"><a href="#" class="quelle-link" title="Nur diese Quelle zeigen" onclick="quelleWaehlen('${esc(quellenKey(m.url))}');return false">${quellenLabel(m.url)}</a>${
+        m.url.includes('#') ? ` · 📄 <span title="Datei im geteilten Ordner — der Link öffnet den Ordner">${esc(m.url.split('#')[1])}</span>` : ''
+      }</div>
       <p style="margin:.2rem 0">${esc(m.zusammenfassung)}</p>
       <div>${m.tags.map((t) => `<a class="tag" href="/suche?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}
       ${m.zuordnungen.map((z) => `<a class="tag ziel" href="${z.href}" title="${esc(z.label)}">${esc(z.code)}</a>`).join('')}</div>
