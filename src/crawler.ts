@@ -56,7 +56,14 @@ async function verarbeiteMaterial(
   // Übersichts-/Portalseite — ablehnen. Ganze Skript-Repos dürfen breit sein.
   const zuBreit = istEinzelseite && k.zuordnungen.filter((c) => c.startsWith('T')).length >= 5
   if (k.qualityScore < 20 || zuBreit) {
-    if (vorhanden) await prisma.material.delete({ where: { url } }) // war mal gut, ist jetzt Schrott
+    // Abgelehntes behalten (Score <20 = öffentlich unsichtbar), damit Admins es einsehen können
+    const abgelehnt = await prisma.material.upsert({
+      where: { url },
+      create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), contentHash, format },
+      update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), contentHash, format },
+    })
+    await prisma.materialZuordnung.deleteMany({ where: { materialId: abgelehnt.id } })
+    await prisma.materialTag.deleteMany({ where: { materialId: abgelehnt.id } })
     return 'abgelehnt'
   }
 

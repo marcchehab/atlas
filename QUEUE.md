@@ -4,22 +4,23 @@
 
 ## To do (von oben nach unten, jeweils zu doing kopieren)
 
-- Icon für die Seite (das im Tab erscheint)
-- Tag- und Format-Filter im UI (analog Quellen-Filter)
-- Tag-Vorschlags-Voting im UI (3 Votes → aktiv)
-- Admin-UI: Tag-Kuration (Vorschläge freigeben/mergen/löschen)
-- Admin-UI: abgelehnte Quellen/Materialien einsehen
-- Admin-UI: Karte ausblenden
-- Nickname ändern können
 - Admin-UI: Lehrplan pro Fach erfassen/ändern
-- Edulog als dritter Auth-Provider (braucht sponsernde Schule)
 
 ## Probably never
+- Edulog als dritter Auth-Provider (braucht sponsernde Schule)
 - Google-Drive-Connector
 - Dropbox: List+Selektiv via Atlas-eigenem App-Token statt Zip
 
 ## Done
 
+- Nickname ändern können
+- Favicon (Globus-Bildmarke, darkmode-fähig)
+- Admin-UI: Tag-Kuration (Bulk-Freigeben/-Löschen, Mergen), abgelehnte Materialien, versteckte Materialien, tote Quellen
+- Admin-UI: Karte ausblenden (✕ auf der Karte, Toggle)
+- Tag-Vorschlags-Voting (gestrichelte Chips in der Tags-Filterzeile, 3 Votes → aktiv)
+- Profil-Dropdown statt Direkt-Logout
+
+- Tag- und Format-Filter im UI (analog Quellen-Filter)
 - Tote-Link-Mail an Melder:in bei Todescounter ≥ 3 (via Brevo)
 - Rate-Limit beim Melden (20/Tag pro Konto), Warnmail an marc@informatikgarten.ch
 - SSRF-Schutz (private IP-Ranges, nur http/https; ATLAS_ALLOW_PRIVATE=1 für lokale Tests)

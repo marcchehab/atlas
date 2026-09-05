@@ -26,6 +26,7 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(titel)} – Atlas</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <script src="/htmx.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -36,6 +37,8 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
     if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.dataset.theme = 'dark'
     const f = localStorage.getItem('fontsize')
     if (f) document.documentElement.style.fontSize = f + '%'
+    const b = localStorage.getItem('sidebarBreite')
+    if (b) document.documentElement.style.setProperty('--sb-breite', b + 'px')
   })()
   function themeWechseln() {
     const dunkel = document.documentElement.dataset.theme === 'dark'
@@ -48,17 +51,51 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
     localStorage.setItem('fontsize', f)
     document.documentElement.style.fontSize = f + '%'
   }
-  // Quellen-Filter: persistiert in localStorage, wirkt clientseitig auf die Karten
-  function quellenFilter() { try { return JSON.parse(localStorage.getItem('quellenFilter')) || [] } catch { return [] } }
-  function setzeQuellenFilter(a) { localStorage.setItem('quellenFilter', JSON.stringify(a)); wendeFilterAn() }
-  function quelleToggle(k) { const a = quellenFilter(); setzeQuellenFilter(a.includes(k) ? a.filter((x) => x !== k) : [...a, k]) }
-  function quelleWaehlen(k) { const a = quellenFilter(); setzeQuellenFilter(a.length === 1 && a[0] === k ? [] : [k]) }
-  function wendeFilterAn() {
-    const a = quellenFilter()
-    document.querySelectorAll('.karte[data-quelle]').forEach((el) => { el.style.display = !a.length || a.includes(el.dataset.quelle) ? '' : 'none' })
-    document.querySelectorAll('.qchip').forEach((c) => c.classList.toggle('aktiv', a.includes(c.dataset.q)))
+  // Filter (Quellen/Tags/Format): persistiert in localStorage, wirkt clientseitig auf die Karten.
+  // Kopfzeile = Tabs; die Chip-Zeile darunter zeigt die gewählte Kategorie.
+  function fltr(k) { try { return JSON.parse(localStorage.getItem('f-' + k)) || [] } catch { return [] } }
+  function fltrSet(k, a) { localStorage.setItem('f-' + k, JSON.stringify(a)); wendeFilterAn() }
+  function fltrToggle(k, v) { const a = fltr(k); fltrSet(k, a.includes(v) ? a.filter((x) => x !== v) : [...a, v]) }
+  function quelleWaehlen(v) { const a = fltr('quellen'); fltrSet('quellen', a.length === 1 && a[0] === v ? [] : [v]) }
+  function fkatWaehlen(k) {
+    localStorage.setItem('filterTab', localStorage.getItem('filterTab') === k ? '' : k)
+    zeigeFilterTab()
   }
-  document.addEventListener('DOMContentLoaded', wendeFilterAn)
+  function zeigeFilterTab() {
+    const k = localStorage.getItem('filterTab') ?? 'quellen' // Default: Quellen offen
+    document.querySelectorAll('.fchips').forEach((el) => { el.style.display = el.dataset.k === k ? 'flex' : 'none' })
+    document.querySelectorAll('.fkat').forEach((el) => el.classList.toggle('offen', el.dataset.k === k))
+  }
+  function wendeFilterAn() {
+    const q = fltr('quellen'), t = fltr('tags'), fo = fltr('format')
+    document.querySelectorAll('.karte[data-quelle]').forEach((el) => {
+      const tagsOk = !t.length || (el.dataset.tags || '').split(' ').some((x) => t.includes(x))
+      const ok = (!q.length || q.includes(el.dataset.quelle)) && tagsOk && (!fo.length || fo.includes(el.dataset.format || ''))
+      el.style.display = ok ? '' : 'none'
+    })
+    document.querySelectorAll('.qchip').forEach((c) => c.classList.toggle('aktiv', fltr(c.dataset.fk).includes(c.dataset.q)))
+    document.querySelectorAll('.fkat').forEach((el) => el.classList.toggle('mit-punkt', fltr(el.dataset.k).length > 0))
+  }
+  document.addEventListener('DOMContentLoaded', () => { zeigeFilterTab(); wendeFilterAn() })
+  function nicknameAendern(aktuell) {
+    const d = document.getElementById('nick-dialog')
+    d.querySelector('input').value = aktuell
+    d.querySelector('.fehler').textContent = ''
+    d.showModal()
+  }
+  function nicknameSpeichern(ev) {
+    ev.preventDefault()
+    const d = document.getElementById('nick-dialog')
+    const neu = d.querySelector('input').value.trim()
+    fetch('/profil/nickname', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'nickname=' + encodeURIComponent(neu),
+    }).then((r) => {
+      if (r.ok) location.reload()
+      else r.text().then((t) => { d.querySelector('.fehler').textContent = t || 'Fehler' })
+    })
+  }
 </script>
 <style>
   :root { --primary: hsl(221.2 83.2% 53.3%); --bg: #f5f5f5; --card: #fff; --fg: #262626; --rand: #e4e4e4; --meta: #737373; --chip: #eef3fa; --chip-ziel: #f3eefa; --hinweis-bg: #fff8e1; --hinweis-rand: #e6d9a0; }
@@ -72,25 +109,45 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
   .logo-svg .wort { fill: var(--fg); } .logo-svg .sub { fill: var(--meta); }
 
   .app { display: flex; min-height: 100vh; }
-  aside { width: 300px; flex-shrink: 0; background: var(--card); border-right: 1px solid var(--rand); padding: 1rem; overflow-y: auto; position: sticky; top: 0; height: 100vh; }
+  .sb-griff { width: 5px; flex-shrink: 0; cursor: col-resize; background: transparent; margin-left: -3px; z-index: 30; }
+  .sb-griff:hover, .sb-griff.aktiv { background: var(--primary); opacity: .5; }
+  aside { width: var(--sb-breite, 300px); flex-shrink: 0; background: var(--card); border-right: 1px solid var(--rand); padding: 1rem; overflow-y: auto; position: sticky; top: 0; height: 100vh; }
   main { flex: 1; padding: 1.5rem 2rem; max-width: 56rem; }
 
   .pillbar { display: flex; justify-content: center; gap: .5rem; margin: .6rem 0 1rem; }
-  .pillbar .pill { display: flex; align-items: center; border: 1px solid var(--rand); background: var(--card); border-radius: 999px; overflow: hidden; }
-  .pillbar button, .pillbar a.pbtn { border: none; background: none; color: var(--fg); font: inherit; font-size: .82rem; padding: .35rem .55rem; cursor: pointer; display: flex; align-items: center; gap: .3rem; text-decoration: none; }
-  .pillbar .pill.kompakt button { font-size: .7rem; padding: .2rem .45rem; }
-  .pillbar .pill.kompakt svg { width: 12px; height: 12px; }
+  .pillbar .pill { display: flex; align-items: center; border: 1px solid var(--rand); background: var(--card); border-radius: 8px; overflow: hidden; }
+  .pillbar button, .pillbar .pbtn { border: none; background: none; color: var(--fg); font: inherit; font-size: .82rem; padding: .35rem .55rem; cursor: pointer; display: flex; align-items: center; gap: .3rem; text-decoration: none; }
+  .seiten-controls { position: fixed; top: .8rem; right: 1rem; z-index: 50; display: flex; align-items: center; border: 1px solid var(--rand); background: var(--card); border-radius: 999px; overflow: hidden; box-shadow: 0 1px 3px rgb(0 0 0 / .08); }
+  .seiten-controls button { border: none; background: none; color: var(--fg); font: inherit; font-size: .7rem; padding: .25rem .5rem; cursor: pointer; display: flex; align-items: center; }
+  .seiten-controls button:hover { background: var(--bg); }
+  .seiten-controls .sep { width: 1px; align-self: stretch; background: var(--rand); }
+  .seiten-controls svg { width: 12px; height: 12px; }
   .pillbar button:hover, .pillbar a.pbtn:hover { background: var(--bg); }
   .pillbar .sep { width: 1px; background: var(--rand); }
   .pillbar .melden-pill { background: var(--primary); border-color: var(--primary); }
   .pillbar .melden-pill a.pbtn { color: #fff; font-weight: 500; }
   .pillbar .melden-pill a.pbtn:hover { background: rgb(255 255 255 / .15); }
+  dialog { border: 1px solid var(--rand); border-radius: 12px; background: var(--card); color: var(--fg); padding: 1.2rem 1.4rem; min-width: 18rem; box-shadow: 0 8px 30px rgb(0 0 0 / .2); }
+  dialog::backdrop { background: rgb(0 0 0 / .35); }
+  dialog input { width: 100%; padding: .5rem .7rem; border: 1px solid var(--rand); border-radius: 8px; background: var(--card); color: var(--fg); font: inherit; }
+  dialog .sekundaer { background: var(--bg); color: var(--fg); border: 1px solid var(--rand); }
   .nur-dunkel { display: none; } [data-theme="dark"] .nur-dunkel { display: flex; } [data-theme="dark"] .nur-hell { display: none; }
   .nur-hell { display: flex; }
-  .qfilter { margin-bottom: 1rem; display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+  .qfilter { margin-bottom: 1rem; }
+  .fkats { display: flex; gap: 1rem; margin-bottom: .4rem; }
+  .fkat { border: none; background: none; color: var(--meta); font: inherit; font-size: .85rem; cursor: pointer; display: flex; align-items: center; gap: .25rem; padding: 0; position: relative; }
+  .fkat:hover { color: var(--fg); }
+  .fkat.offen { color: var(--fg); font-weight: 600; }
+  .fkat svg { transition: transform .15s; }
+  .fkat.offen svg { transform: rotate(90deg); }
+  .fkat .punkt { display: none; width: 7px; height: 7px; border-radius: 50%; background: var(--primary); }
+  .fkat.mit-punkt .punkt { display: inline-block; }
+  .fchips { display: none; align-items: center; gap: .4rem; flex-wrap: wrap; }
   .qchip { border: 1px solid var(--rand); background: var(--card); color: var(--fg); border-radius: 999px; padding: .1rem .7rem; font-size: .78rem; cursor: pointer; }
   .qchip:hover { background: var(--bg); }
   .qchip.aktiv { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .qchip.vorschlag { border-style: dashed; color: var(--meta); text-decoration: none; }
+  .qchip.vorschlag.aktiv { background: var(--primary); color: #fff; border-color: var(--primary); border-style: solid; }
   .karte .quelle-link { color: var(--meta); } .karte .quelle-link:hover { color: var(--fg); text-decoration: none; }
 
   aside .logo { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 1.5rem; color: var(--primary); }
@@ -130,10 +187,49 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
 </style>
 </head>
 <body>
+<dialog id="nick-dialog">
+  <form onsubmit="nicknameSpeichern(event)">
+    <h3 style="margin:0 0 .6rem">Nickname ändern</h3>
+    <input name="nickname" required minlength="2" maxlength="30" autocomplete="off">
+    <div class="fehler meta" style="color:#b3261e;min-height:1.2em;margin:.3rem 0"></div>
+    <div style="display:flex;gap:.5rem;justify-content:flex-end">
+      <button type="button" class="sekundaer" onclick="this.closest('dialog').close()">Abbrechen</button>
+      <button type="submit">Speichern</button>
+    </div>
+  </form>
+</dialog>
+<div class="seiten-controls">
+  <button onclick="schrift(-10)" title="Schrift verkleinern">A−</button><div class="sep"></div><button onclick="themeWechseln()" title="Hell/Dunkel"><span class="nur-hell"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></span><span class="nur-dunkel"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></span></button><div class="sep"></div><button onclick="schrift(10)" title="Schrift vergrössern">A+</button>
+</div>
 <div class="app">
 <aside>${sidebar}</aside>
+<div class="sb-griff" title="Sidebar-Breite ziehen"></div>
 <main>${body}</main>
 </div>
+<script>
+  // Sidebar entlang der Grenze ziehbar; Breite persistiert
+  (function () {
+    const griff = document.querySelector('.sb-griff')
+    if (!griff) return
+    griff.addEventListener('pointerdown', (e) => {
+      e.preventDefault()
+      griff.classList.add('aktiv')
+      griff.setPointerCapture(e.pointerId)
+      const move = (ev) => {
+        const b = Math.min(480, Math.max(220, ev.clientX))
+        document.documentElement.style.setProperty('--sb-breite', b + 'px')
+        localStorage.setItem('sidebarBreite', b)
+      }
+      const up = () => {
+        griff.classList.remove('aktiv')
+        griff.removeEventListener('pointermove', move)
+        griff.removeEventListener('pointerup', up)
+      }
+      griff.addEventListener('pointermove', move)
+      griff.addEventListener('pointerup', up)
+    })
+  })()
+</script>
 </body></html>`
 }
 
@@ -152,7 +248,7 @@ export interface SidebarDaten {
     }[]
   }[]
   aktiv?: string // "T1.2" | "K1.2.1"
-  user?: { nickname: string } | null
+  user?: { nickname: string; istAdmin?: boolean } | null
 }
 
 export function sidebar(d: SidebarDaten): string {
@@ -161,19 +257,20 @@ export function sidebar(d: SidebarDaten): string {
   const sun = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>`
   const person = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`
   const login = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>`
+  const stift = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg>`
+  const logout = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`
   const plus = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>`
   return `<a href="${basis}" class="logo-svg" aria-label="Atlas" style="width:170px;display:block;margin:0 auto .3rem">${LOGO_INLINE}</a>
 <div class="untertitel" style="text-align:center">Unterrichtsmaterialien Schweizer Gymnasien</div>
 <div class="pillbar">
-  <div class="pill kompakt">
-    <button onclick="schrift(-10)" title="Schrift verkleinern">A−</button><div class="sep"></div><button onclick="themeWechseln()" title="Hell/Dunkel"><span class="nur-hell">${moon}</span><span class="nur-dunkel">${sun}</span></button><div class="sep"></div><button onclick="schrift(10)" title="Schrift vergrössern">A+</button>
-  </div>
-  <div class="pill">${
+  <div class="pill melden-pill"><a class="pbtn" href="/melden?fach=${esc(d.fachCode)}" title="Nur ein Link — den Rest macht Atlas">Material teilen</a></div>
+  ${
     d.user
-      ? `<button onclick="document.getElementById('lo').submit()" title="${esc(d.user.nickname)} — Abmelden">${person}</button><form id="lo" method="post" action="/logout" hidden></form>`
-      : `<a class="pbtn" href="/login" title="Sign in">${login}</a>`
-  }</div>
-  <div class="pill melden-pill"><a class="pbtn" href="/melden?fach=${esc(d.fachCode)}" title="Nur ein Link — den Rest macht Atlas">${plus}Material teilen</a></div>
+      ? `<div class="pill">
+<span class="pbtn" style="cursor:default" title="${esc(d.user.nickname)}">${person}${esc(kürze(d.user.nickname.split(' ')[0], 7))}</span><div class="sep"></div><button style="padding:.35rem .4rem" onclick="nicknameAendern('${esc(d.user.nickname)}')" title="Nickname ändern">${stift}</button><div class="sep"></div><button style="padding:.35rem .4rem" onclick="document.getElementById('lo').submit()" title="Abmelden">${logout}</button><form id="lo" method="post" action="/logout" hidden></form>
+</div>`
+      : `<div class="pill"><a class="pbtn" href="/login" title="Sign in">${login}</a></div>`
+  }
 </div>
 <select onchange="location='/fach/'+this.value">
 ${d.faecher.map((f) => `<option value="${esc(f.code)}"${f.code === d.fachCode ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}
@@ -197,6 +294,7 @@ ${tg.kompetenzen
   <a href="/suche">Suche</a>
   <a href="/melden">Quelle melden</a>
   <a href="/quellen">Quellen</a>
+  ${d.user?.istAdmin ? '<a href="/admin">Admin</a>' : ''}
 </div>`
 }
 
@@ -209,6 +307,7 @@ export function loginSeite(opts: { microsoft: boolean; weiter: string; hinweis?:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Anmelden – Atlas</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -301,16 +400,47 @@ export function quellenLabel(url: string): string {
   }
 }
 
-// Quellen-Filterleiste: Auswahl liegt in localStorage und überlebt Navigation.
-export function filterLeiste(gruppen: string[]): string {
-  if (gruppen.length < 2) return ''
-  return `<div class="qfilter meta">Quellen:
-${gruppen.map((g) => `<button class="qchip" data-q="${esc(g)}" onclick="quelleToggle('${esc(g)}')">${esc(g)}</button>`).join('')}
+export interface TagVorschlag {
+  id: number
+  name: string
+  votes: number
+  meinVote: boolean
+}
+
+// Vorschlags-Chip (gestrichelt) mit Vote-Zähler; 3 Stimmen machen den Tag offiziell.
+export function tagVorschlagChip(v: TagVorschlag, eingeloggt: boolean): string {
+  const label = `${esc(v.name)} ▲${v.votes}/3`
+  if (!eingeloggt) return `<a class="qchip vorschlag" href="/login" title="Tag-Vorschlag der AI — anmelden zum Abstimmen">${label}</a>`
+  return `<button class="qchip vorschlag${v.meinVote ? ' aktiv' : ''}" title="Tag-Vorschlag der AI — mit 3 Stimmen wird er offiziell" hx-post="/tagvote/${v.id}" hx-swap="outerHTML">${label}</button>`
+}
+
+// Filterleiste: Kopfzeile mit Kategorien (Tabs), darunter die Chips der gewählten
+// Kategorie. Auswahl liegt in localStorage und überlebt Navigation; zugeklappte
+// Kategorien mit aktiven Filtern zeigen einen blauen Punkt.
+export function filterLeiste(quellen: string[], tags: string[], formate: string[], vorschlaege: TagVorschlag[] = [], eingeloggt = false): string {
+  const chevron = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>`
+  const kategorien: [string, string, string[]][] = [
+    ['quellen', 'Quellen', quellen],
+    ['tags', 'Tags', tags],
+    ['format', 'Format', formate],
+  ]
+  return `<div class="qfilter">
+<div class="fkats">
+${kategorien.map(([k, name]) => `<button class="fkat" data-k="${k}" onclick="fkatWaehlen('${k}')">${chevron}${name}<span class="punkt"></span></button>`).join('')}
+</div>
+${kategorien
+  .map(
+    ([k, , werte]) => `<div class="fchips" data-k="${k}">
+${werte.map((w) => `<button class="qchip" data-fk="${k}" data-q="${esc(w)}" onclick="fltrToggle('${k}','${esc(w)}')">${esc(w)}</button>`).join('')}
+${k === 'tags' ? vorschlaege.map((v) => tagVorschlagChip(v, eingeloggt)).join('') : ''}
+</div>`
+  )
+  .join('\n')}
 </div>`
 }
 
-export function materialKarte(m: MaterialKarte, eingeloggt: boolean): string {
-  return `<div class="karte" data-quelle="${esc(quellenKey(m.url))}">
+export function materialKarte(m: MaterialKarte, eingeloggt: boolean, admin = false): string {
+  return `<div class="karte" data-quelle="${esc(quellenKey(m.url))}" data-tags="${esc(m.tags.join(' '))}" data-format="${esc(m.format ?? '')}">
   <div style="display:flex;gap:.8rem;align-items:flex-start">
     <div style="flex:1">
       <h3><a href="${esc(m.url)}" rel="noopener">${esc(m.titel)}</a></h3>
@@ -321,7 +451,10 @@ export function materialKarte(m: MaterialKarte, eingeloggt: boolean): string {
       <div>${m.format ? `<span class="tag format">${esc(m.format)}</span>` : ''}${m.tags.map((t) => `<a class="tag" href="/suche?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}
       ${m.zuordnungen.map((z) => `<a class="tag ziel" href="${z.href}" title="${esc(z.label)}">${esc(z.code)}</a>`).join('')}</div>
     </div>
-    ${voteButtons(m, eingeloggt)}
+    <div style="display:flex;flex-direction:column;gap:.4rem;align-items:center">
+      ${voteButtons(m, eingeloggt)}
+      ${admin ? `<button class="pfeil" title="Karte ausblenden (Admin)" hx-post="/admin/material/${m.id}/verstecken" hx-target="closest .karte" hx-swap="outerHTML" hx-confirm="Karte ausblenden?">✕</button>` : ''}
+    </div>
   </div>
 </div>`
 }

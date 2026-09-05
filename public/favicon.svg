@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 8 106 106">
+<style>
+  .mark-bg{fill:#f4f4f5}.mark{stroke:#525252}
+  @media (prefers-color-scheme:dark){.mark-bg{fill:#262626}.mark{stroke:#d4d4d4}}
+</style>
+<rect class="mark-bg" x="10" y="12" width="98" height="98" rx="14"/>
+<g class="mark" transform="translate(20,22) scale(3.2)" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></g>
+</svg>

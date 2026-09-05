@@ -37,7 +37,7 @@ Aufgaben:
 3. zusammenfassung: 2–3 Sätze auf Deutsch
 4. zuordnungen: abgedeckte Kompetenzen (K…); nur wenn ein Material ein Teilgebiet breit abdeckt, stattdessen dessen T…-Code. Leer, wenn nichts passt. Nur zuordnen, was der Text selbst unterrichtet — nicht, was er bloß erwähnt oder verlinkt. Kompetenzen mit Werkzeug-Bezug (z.B. «mittels Programmierung») nur, wenn dieses Werkzeug im Material tatsächlich eingesetzt wird — ein Tutorial zu einer Kreativ-Software ohne Programmieranteil erfüllt keine Programmier-Kompetenz.
 5. tags: passende Tags aus der erlaubten Liste
-6. neueTagVorschlaege: meist leer — nur ausnahmsweise max. 2 neue Tags (kleingeschrieben, generisch wiederverwendbar wie die erlaubten Tags), wenn ein zentraler Aspekt durch kein erlaubtes Tag abbildbar ist. Keine Themen-Tags (dafür sind die Lernziele da), keine Synonyme.
+6. neueTagVorschlaege: meist leer — nur ausnahmsweise max. 2 neue Tags (kleingeschrieben, generisch wiederverwendbar wie die erlaubten Tags), wenn ein zentraler Aspekt durch kein erlaubtes Tag abbildbar ist. Niemals Themen, die im Lehrplan-Raster oben schon vorkommen (z.B. kryptographie, netzwerke, algorithmen, datenbanken — dafür sind die Zuordnungen da). Tags beschreiben Form, Werkzeug oder Zugang, nicht das Thema. Keine Synonyme.
 
 Material:
 ${text.slice(0, 30000)}`

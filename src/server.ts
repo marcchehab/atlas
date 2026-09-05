@@ -6,7 +6,7 @@ import { crawlQuelle } from './crawler.js'
 import * as auth from './auth.js'
 import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
-import { layout, esc, kürze, sidebar, materialKarte, voteButtons, loginSeite, filterLeiste, quellenKey, MaterialKarte } from './views.js'
+import { layout, esc, kürze, sidebar, materialKarte, voteButtons, loginSeite, filterLeiste, tagVorschlagChip, quellenKey, MaterialKarte, TagVorschlag } from './views.js'
 
 const app = express()
 const SECRET = process.env.SESSION_SECRET ?? 'dev'
@@ -14,12 +14,12 @@ app.use(express.urlencoded({ extended: false }))
 app.use(cookieParser(SECRET))
 app.use(express.static(path.join(process.cwd(), 'public')))
 
-interface Nutzer { id: number; nickname: string }
+interface Nutzer { id: number; nickname: string; istAdmin: boolean }
 
 async function aktuellerUser(req: express.Request): Promise<Nutzer | null> {
   const id = Number(req.signedCookies?.uid)
   if (!id) return null
-  const u = await prisma.user.findUnique({ where: { id }, select: { id: true, nickname: true } })
+  const u = await prisma.user.findUnique({ where: { id }, select: { id: true, nickname: true, istAdmin: true } })
   return u ?? null
 }
 
@@ -69,7 +69,7 @@ async function baueSidebar(fachCode: string, aktiv: string | undefined, user: Nu
 
 async function ladeMaterialKarten(where: object, userId: number | null, fachCode: string): Promise<MaterialKarte[]> {
   const mats = await prisma.material.findMany({
-    where: { ...where, fehlCounter: { lt: 3 }, quelle: { todesCounter: { lt: 3 } } },
+    where: { ...where, fehlCounter: { lt: 3 }, versteckt: false, qualityScore: { gte: 20 }, quelle: { todesCounter: { lt: 3 } } },
     include: {
       tags: { include: { tag: true } },
       zuordnungen: { include: { teilgebiet: true, kompetenz: true } },
@@ -97,9 +97,23 @@ async function ladeMaterialKarten(where: object, userId: number | null, fachCode
     .sort((a, b) => b.score - a.score || b.aiScore - a.aiScore)
 }
 
-async function alleQuellenGruppen(): Promise<string[]> {
+async function filterDaten(userId: number | null): Promise<[string[], string[], string[], TagVorschlag[]]> {
   const quellen = await prisma.quelle.findMany({ select: { url: true } })
-  return [...new Set(quellen.map((q) => quellenKey(q.url)))].sort()
+  const tags = await prisma.tag.findMany({ where: { status: 'AKTIV' }, orderBy: { name: 'asc' }, select: { name: true } })
+  const formate = await prisma.material.findMany({ where: { format: { not: null } }, select: { format: true }, distinct: ['format'] })
+  const vorschlaege = await prisma.tag.findMany({
+    where: { status: 'VORSCHLAG' },
+    orderBy: [{ name: 'asc' }],
+    include: { votes: true },
+  })
+  return [
+    [...new Set(quellen.map((q) => quellenKey(q.url)))].sort(),
+    tags.map((t) => t.name),
+    formate.map((f) => f.format!).sort(),
+    vorschlaege
+      .map((v) => ({ id: v.id, name: v.name, votes: v.votes.length, meinVote: userId != null && v.votes.some((x) => x.userId === userId) }))
+      .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name)),
+  ]
 }
 
 app.get('/', (_req, res) => res.redirect(`/fach/${STANDARD_FACH}`))
@@ -116,8 +130,8 @@ app.get('/fach/:fach', async (req, res) => {
 Links ein Teilgebiet oder eine Kompetenz wählen — oder <a href="/suche">Volltextsuche</a>.</p>
 <form class="suche" action="/suche"><input type="search" name="q" placeholder="Volltextsuche, z.B. binärsystem arbeitsblatt"><button>Suchen</button></form>
 <h2>Alle Materialien (${neueste.length})</h2>
-${filterLeiste(await alleQuellenGruppen())}
-${neueste.length ? neueste.map((k) => materialKarte(k, !!user)).join('\n') : '<p>Noch keine Materialien. <a href="/melden">Quelle melden?</a></p>'}`
+${filterLeiste(...(await filterDaten(user?.id ?? null)), !!user)}
+${neueste.length ? neueste.map((k) => materialKarte(k, !!user, user?.istAdmin ?? false)).join('\n') : '<p>Noch keine Materialien. <a href="/melden">Quelle melden?</a></p>'}`
   res.send(layout(fach.name, side, body, user))
 })
 
@@ -134,8 +148,8 @@ app.get('/fach/:fach/t/:code', async (req, res) => {
   const body = `<h1>${esc(tg.code)} ${esc(tg.name)}</h1>
 <p class="meta">${tg.lerngebiet.nummer}. ${esc(tg.lerngebiet.name)}</p>
 <ul class="meta">${tg.kompetenzen.map((k) => `<li>${esc(k.text)}</li>`).join('')}</ul>
-${filterLeiste(await alleQuellenGruppen())}
-${karten.length ? karten.map((k) => materialKarte(k, !!user)).join('\n') : '<p>Noch keine Materialien. <a href="/melden">Quelle melden?</a></p>'}`
+${filterLeiste(...(await filterDaten(user?.id ?? null)), !!user)}
+${karten.length ? karten.map((k) => materialKarte(k, !!user, user?.istAdmin ?? false)).join('\n') : '<p>Noch keine Materialien. <a href="/melden">Quelle melden?</a></p>'}`
   res.send(layout(`${tg.code} ${tg.name}`, side, body, user))
 })
 
@@ -152,8 +166,8 @@ app.get('/fach/:fach/k/:code', async (req, res) => {
   const body = `<h1>${esc(ko.code)}</h1>
 <p>Die Maturandinnen und Maturanden können <strong>${esc(ko.text)}</strong>.</p>
 <p class="meta"><a href="/fach/${esc(req.params.fach)}/t/${esc(ko.teilgebiet.code)}">${esc(ko.teilgebiet.code)} ${esc(ko.teilgebiet.name)}</a> · ${ko.teilgebiet.lerngebiet.nummer}. ${esc(ko.teilgebiet.lerngebiet.name)}</p>
-${filterLeiste(await alleQuellenGruppen())}
-${karten.length ? karten.map((k) => materialKarte(k, !!user)).join('\n') : '<p>Noch keine Materialien. <a href="/melden">Quelle melden?</a></p>'}`
+${filterLeiste(...(await filterDaten(user?.id ?? null)), !!user)}
+${karten.length ? karten.map((k) => materialKarte(k, !!user, user?.istAdmin ?? false)).join('\n') : '<p>Noch keine Materialien. <a href="/melden">Quelle melden?</a></p>'}`
   res.send(layout(ko.code, side, body, user))
 })
 
@@ -168,7 +182,7 @@ app.get('/suche', async (req, res) => {
   } else if (q) {
     // Suchwörter, die auf eine Quelle passen ("oinf.ch simulation"), werden zum Quellen-Filter;
     // der Rest geht in die FTS5-Volltextsuche.
-    const gruppen = await alleQuellenGruppen()
+    const [gruppen] = await filterDaten(null)
     const quellTreffer: string[] = []
     const textWoerter: string[] = []
     for (const wort of q.split(/\s+/)) {
@@ -195,7 +209,7 @@ app.get('/suche', async (req, res) => {
   const body = `<h1>Suche</h1>
 <form class="suche"><input type="search" name="q" value="${esc(q)}" placeholder="Volltextsuche"><button>Suchen</button></form>
 ${tag ? `<h2>Tag: ${esc(tag)}</h2>` : q ? `<h2>Resultate für «${esc(q)}»</h2>` : ''}
-${(q || tag) ? (karten.length ? karten.map((k) => materialKarte(k, !!user)).join('\n') : '<p>Keine Treffer.</p>') : ''}`
+${(q || tag) ? (karten.length ? karten.map((k) => materialKarte(k, !!user, user?.istAdmin ?? false)).join('\n') : '<p>Keine Treffer.</p>') : ''}`
   res.send(layout('Suche', side, body, user))
 })
 
@@ -345,6 +359,168 @@ app.post('/vote/:id/:richtung', async (req, res) => {
   res.send(voteButtons({ id: materialId, score: agg._sum.wert ?? 0, meinVote }, true))
 })
 
+// Tag-Vorschlags-Vote (HTMX-Toggle); 3 Stimmen machen den Tag offiziell
+app.post('/tagvote/:id', async (req, res) => {
+  const user = await aktuellerUser(req)
+  if (!user) return res.status(401).send('')
+  const tagId = Number(req.params.id)
+  const tag = await prisma.tag.findUnique({ where: { id: tagId }, include: { votes: true } })
+  if (!tag || tag.status !== 'VORSCHLAG') return res.status(404).send('')
+  const meiner = tag.votes.find((v) => v.userId === user.id)
+  if (meiner) await prisma.tagVote.delete({ where: { userId_tagId: { userId: user.id, tagId } } })
+  else await prisma.tagVote.create({ data: { userId: user.id, tagId } })
+  const votes = await prisma.tagVote.count({ where: { tagId } })
+  if (votes >= 3) {
+    await prisma.tag.update({ where: { id: tagId }, data: { status: 'AKTIV' } })
+    return res.send(`<button class="qchip" data-fk="tags" data-q="${esc(tag.name)}" onclick="fltrToggle('tags','${esc(tag.name)}')">${esc(tag.name)}</button>`)
+  }
+  res.send(tagVorschlagChip({ id: tagId, name: tag.name, votes, meinVote: !meiner }, true))
+})
+
+// ---------- Admin ----------
+
+// Tag-Verwaltung (Vorschläge + aktive Tags) als ein Fragment — nach Aktionen per HTMX neu gerendert,
+// damit z.B. frisch freigegebene Tags sofort in der Aktiv-Tabelle auftauchen.
+async function adminTagsSektion(): Promise<string> {
+  const vorschlaege = await prisma.tag.findMany({ where: { status: 'VORSCHLAG' }, orderBy: { name: 'asc' }, include: { _count: { select: { votes: true } } } })
+  const aktive = await prisma.tag.findMany({ where: { status: 'AKTIV' }, orderBy: { name: 'asc' }, include: { _count: { select: { material: true } } } })
+  const tagAuswahl = aktive.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('')
+  const aktivTabelle = `<h2>Aktive Tags</h2>
+<table><tr><th>Tag</th><th>Materialien</th><th></th></tr>
+${aktive.map((t) => `<tr><td>${esc(t.name)}</td><td>${t._count.material}</td><td><form hx-post="/admin/tag/${t.id}/loeschen" hx-target="#tag-verwaltung" hx-swap="outerHTML" hx-confirm="Tag löschen?"><button style="background:#b3261e">Löschen</button></form></td></tr>`).join('\n')}</table>`
+  if (!vorschlaege.length) return `<div id="tag-verwaltung"><h2>Tag-Vorschläge (0)</h2><p class="meta">Keine offenen Vorschläge.</p>${aktivTabelle}</div>`
+  return `<div id="tag-verwaltung">
+<h2>Tag-Vorschläge (${vorschlaege.length})</h2>
+<form hx-post="/admin/tags/bulk" hx-target="#tag-verwaltung" hx-swap="outerHTML">
+<p style="display:flex;gap:.5rem;align-items:center">
+  <label class="meta"><input type="checkbox" onclick="document.querySelectorAll('#tag-verwaltung input[name=ids]').forEach(c=>c.checked=this.checked)"> alle</label>
+  <button name="aktion" value="freigeben">Auswahl freigeben</button>
+  <button name="aktion" value="loeschen" style="background:#b3261e" hx-confirm="Ausgewählte Vorschläge löschen?">Auswahl löschen</button>
+</p>
+<table><tr><th></th><th>Tag</th><th>Votes</th><th></th></tr>
+${vorschlaege
+  .map(
+    (t) => `<tr><td><input type="checkbox" name="ids" value="${t.id}"></td><td>${esc(t.name)}</td><td>${t._count.votes}/3</td><td>
+<span style="display:flex;gap:.2rem;align-items:center"><select name="ziel-${t.id}">${tagAuswahl}</select><button name="aktion" value="mergen-${t.id}">Mergen</button></span>
+</td></tr>`
+  )
+  .join('\n')}</table>
+</form>
+${aktivTabelle}
+</div>`
+}
+
+
+
+function nurAdmin(user: Nutzer | null, res: express.Response): user is Nutzer {
+  if (user?.istAdmin) return true
+  res.status(403).send('Nur für Admins.')
+  return false
+}
+
+app.get('/admin', async (req, res) => {
+  const user = await aktuellerUser(req)
+  if (!nurAdmin(user, res)) return
+  const side = await baueSidebar(STANDARD_FACH, undefined, user)
+  const abgelehnte = await prisma.material.findMany({ where: { qualityScore: { lt: 20 } }, orderBy: { createdAt: 'desc' }, take: 100, include: { quelle: true } })
+  const versteckte = await prisma.material.findMany({ where: { versteckt: true }, orderBy: { createdAt: 'desc' } })
+  const tote = await prisma.quelle.findMany({ where: { todesCounter: { gte: 3 } }, include: { melder: true } })
+  const body = `<h1>Admin</h1>
+${await adminTagsSektion()}
+<h2>Von der AI abgelehnt (${abgelehnte.length}, Score &lt; 20)</h2>
+<table><tr><th>Titel</th><th>Score</th><th>Quelle</th></tr>
+${abgelehnte.map((m) => `<tr><td><a href="${esc(m.url)}" rel="noopener">${esc(kürze(m.titel, 60))}</a></td><td>${m.qualityScore}</td><td class="meta">${esc(quellenKey(m.quelle.url))}</td></tr>`).join('\n')}</table>
+<h2>Versteckte Materialien (${versteckte.length})</h2>
+${versteckte.length ? `<table><tr><th>Titel</th><th></th></tr>
+${versteckte.map((m) => `<tr><td><a href="${esc(m.url)}" rel="noopener">${esc(kürze(m.titel, 60))}</a></td><td><form hx-post="/admin/material/${m.id}/verstecken" hx-target="closest tr" hx-swap="outerHTML"><button>Wieder zeigen</button></form></td></tr>`).join('\n')}</table>` : '<p class="meta">Keine.</p>'}
+<h2>Tote Quellen (${tote.length})</h2>
+${tote.length ? `<table><tr><th>URL</th><th>☠</th><th>Melder:in</th></tr>
+${tote.map((q) => `<tr><td><a href="${esc(q.url)}" rel="noopener">${esc(kürze(q.titel ?? q.url, 60))}</a></td><td>${q.todesCounter}</td><td>${esc(q.melder.nickname)}</td></tr>`).join('\n')}</table>` : '<p class="meta">Keine.</p>'}`
+  res.send(layout('Admin', side, body, user))
+})
+
+app.post('/admin/tags/bulk', async (req, res) => {
+  const user = await aktuellerUser(req)
+  if (!nurAdmin(user, res)) return
+  const ids = (Array.isArray(req.body.ids) ? req.body.ids : req.body.ids ? [req.body.ids] : []).map(Number)
+  const aktion = String(req.body.aktion ?? '')
+  if (aktion === 'freigeben' && ids.length) {
+    await prisma.tag.updateMany({ where: { id: { in: ids }, status: 'VORSCHLAG' }, data: { status: 'AKTIV' } })
+  } else if (aktion === 'loeschen' && ids.length) {
+    await prisma.materialTag.deleteMany({ where: { tagId: { in: ids } } })
+    await prisma.tagVote.deleteMany({ where: { tagId: { in: ids } } })
+    await prisma.tag.deleteMany({ where: { id: { in: ids }, status: 'VORSCHLAG' } })
+  } else if (aktion.startsWith('mergen-')) {
+    const von = Number(aktion.slice(7))
+    const ziel = Number(req.body[`ziel-${von}`])
+    if (von && ziel && von !== ziel) {
+      const zuweisungen = await prisma.materialTag.findMany({ where: { tagId: von } })
+      for (const z of zuweisungen) {
+        await prisma.materialTag.upsert({
+          where: { materialId_tagId: { materialId: z.materialId, tagId: ziel } },
+          create: { materialId: z.materialId, tagId: ziel },
+          update: {},
+        })
+      }
+      await prisma.materialTag.deleteMany({ where: { tagId: von } })
+      await prisma.tagVote.deleteMany({ where: { tagId: von } })
+      await prisma.tag.delete({ where: { id: von } })
+    }
+  }
+  res.send(await adminTagsSektion())
+})
+
+app.post('/admin/tag/:id/freigeben', async (req, res) => {
+  const user = await aktuellerUser(req)
+  if (!nurAdmin(user, res)) return
+  await prisma.tag.update({ where: { id: Number(req.params.id) }, data: { status: 'AKTIV' } })
+  if (req.headers['hx-request']) return res.send('')
+  res.redirect('/admin')
+})
+
+app.post('/admin/tag/:id/loeschen', async (req, res) => {
+  const user = await aktuellerUser(req)
+  if (!nurAdmin(user, res)) return
+  const id = Number(req.params.id)
+  await prisma.materialTag.deleteMany({ where: { tagId: id } })
+  await prisma.tagVote.deleteMany({ where: { tagId: id } })
+  await prisma.tag.delete({ where: { id } })
+  if (req.headers['hx-request']) return res.send(await adminTagsSektion())
+  res.redirect('/admin')
+})
+
+app.post('/admin/tag/:id/mergen', async (req, res) => {
+  const user = await aktuellerUser(req)
+  if (!nurAdmin(user, res)) return
+  const von = Number(req.params.id)
+  const ziel = Number(req.body.ziel)
+  if (von !== ziel) {
+    const zuweisungen = await prisma.materialTag.findMany({ where: { tagId: von } })
+    for (const z of zuweisungen) {
+      await prisma.materialTag.upsert({
+        where: { materialId_tagId: { materialId: z.materialId, tagId: ziel } },
+        create: { materialId: z.materialId, tagId: ziel },
+        update: {},
+      })
+    }
+    await prisma.materialTag.deleteMany({ where: { tagId: von } })
+    await prisma.tag.delete({ where: { id: von } })
+  }
+  if (req.headers['hx-request']) return res.send('')
+  res.redirect('/admin')
+})
+
+// Karte ausblenden/zeigen (Toggle); aus der Karten-Ansicht via HTMX (leere Antwort entfernt die Karte)
+app.post('/admin/material/:id/verstecken', async (req, res) => {
+  const user = await aktuellerUser(req)
+  if (!nurAdmin(user, res)) return
+  const id = Number(req.params.id)
+  const m = await prisma.material.findUniqueOrThrow({ where: { id } })
+  await prisma.material.update({ where: { id }, data: { versteckt: !m.versteckt } })
+  if (req.headers['hx-request']) return res.send('')
+  res.redirect('/admin')
+})
+
 // ---------- Auth: Microsoft OAuth (Entra) + Magic-Link (Brevo) ----------
 
 function loginAbschliessen(res: express.Response, userId: number, weiter: string) {
@@ -404,6 +580,15 @@ app.get('/api/auth/magic', async (req, res) => {
     return res.status(400).send(layout('Link ungültig', side, '<p>Der Link ist ungültig oder abgelaufen. <a href="/login">Neu anfordern</a></p>', null))
   }
   loginAbschliessen(res, await userFuerEmail(email), '/')
+})
+
+app.post('/profil/nickname', async (req, res) => {
+  const user = await aktuellerUser(req)
+  if (!user) return res.status(401).send('Nicht angemeldet')
+  const nickname = String(req.body.nickname ?? '').trim()
+  if (nickname.length < 2 || nickname.length > 30) return res.status(400).send('Nickname muss 2–30 Zeichen lang sein')
+  await prisma.user.update({ where: { id: user.id }, data: { nickname } })
+  res.send('ok')
 })
 
 app.post('/logout', (_req, res) => {
