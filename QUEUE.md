@@ -4,7 +4,6 @@
 
 ## To do (von oben nach unten, jeweils zu doing kopieren)
 
-- in den quellen, tags und format pills klein die aktuelle anzahl (muss sich natürilch anpassen wenn filter ändert)
 - Admin-UI: Lehrplan pro Fach erfassen/ändern
 
 ## Probably never
@@ -14,6 +13,7 @@
 
 ## Done
 
+- in den quellen, tags und format pills klein die aktuelle anzahl (muss sich natürilch anpassen wenn filter ändert)
 - Nickname ändern können
 - Favicon (Globus-Bildmarke, darkmode-fähig)
 - Admin-UI: Tag-Kuration (Bulk-Freigeben/-Löschen, Mergen), abgelehnte Materialien, versteckte Materialien, tote Quellen

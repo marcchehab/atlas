@@ -95,9 +95,21 @@ async function verarbeiteMaterial(
   for (const roh of k.neueTagVorschlaege.slice(0, 2)) {
     const name = roh.toLowerCase().trim()
     if (name.length < 3 || name.length > 30) continue
-    await prisma.tag.upsert({ where: { name }, create: { name, status: 'VORSCHLAG' }, update: {} })
+    vorschlagZaehler.set(name, (vorschlagZaehler.get(name) ?? 0) + 1)
   }
   return vorhanden ? 'aktualisiert' : 'neu'
+}
+
+// Tag-Vorschläge werden über den Lauf gezählt statt sofort gespeichert —
+// am Ende schaffen es nur die 5 häufigsten in die DB (die AI schlägt sonst zu viel vor).
+const vorschlagZaehler = new Map<string, number>()
+
+export async function flushTagVorschlaege(max = 5): Promise<void> {
+  const top = [...vorschlagZaehler.entries()].sort((a, b) => b[1] - a[1]).slice(0, max)
+  vorschlagZaehler.clear()
+  for (const [name] of top) {
+    await prisma.tag.upsert({ where: { name }, create: { name, status: 'VORSCHLAG' }, update: {} })
+  }
 }
 
 // Nach dem Crawl: verschwundene URLs behandeln. Gleicher Content-Hash innerhalb derselben
@@ -619,7 +631,7 @@ async function crawlCloud(quelle: { id: number; url: string; etag: string | null
 
 // ---------- Einstieg ----------
 
-export async function crawlQuelle(quelleId: number, force = false): Promise<string> {
+export async function crawlQuelle(quelleId: number, force = false, sammelLauf = false): Promise<string> {
   const quelle = await prisma.quelle.findUniqueOrThrow({ where: { id: quelleId } })
   const ctx = await ladeKontext()
   try {
@@ -635,6 +647,7 @@ export async function crawlQuelle(quelleId: number, force = false): Promise<stri
       where: { id: quelleId },
       data: { todesCounter: 0, lastCrawledAt: new Date(), qualityScore: maxScore._max.qualityScore ?? 0, titel },
     })
+    if (!sammelLauf) await flushTagVorschlaege()
     return resultat
   } catch (e) {
     const neu = quelle.todesCounter + 1
@@ -660,9 +673,10 @@ export async function crawlQuelle(quelleId: number, force = false): Promise<stri
 export async function crawlAlle(force = false) {
   const quellen = await prisma.quelle.findMany({ where: { todesCounter: { lt: TODES_SCHWELLE } } })
   for (const q of quellen) {
-    const resultat = await crawlQuelle(q.id, force)
+    const resultat = await crawlQuelle(q.id, force, true)
     console.log(`${q.url} → ${resultat}`)
   }
+  await flushTagVorschlaege()
 }
 
 if (process.argv[1]?.endsWith('crawler.ts') || process.argv[1]?.endsWith('crawler.js')) {
