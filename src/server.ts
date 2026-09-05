@@ -4,6 +4,8 @@ import path from 'node:path'
 import { prisma, initDb, normalizeUrl, erkenneTyp } from './db.js'
 import { crawlQuelle } from './crawler.js'
 import * as auth from './auth.js'
+import { sendeMail } from './mail.js'
+import { pruefeOeffentlich } from './netz.js'
 import { layout, esc, kürze, sidebar, materialKarte, voteButtons, loginSeite, filterLeiste, quellenKey, MaterialKarte } from './views.js'
 
 const app = express()
@@ -230,15 +232,25 @@ app.get('/melden', async (req, res) => {
   res.send(layout('Quelle melden', side, body, user))
 })
 
+const MELDE_LIMIT = 20 // Quellen pro Konto und 24h — Kostenbremse
+
 app.post('/melden', async (req, res) => {
   const user = await aktuellerUser(req)
   if (!user) return res.redirect('/login')
   const side = await baueSidebar(STANDARD_FACH, undefined, user)
+  const gemeldet24h = await prisma.quelle.count({
+    where: { melderId: user.id, createdAt: { gt: new Date(Date.now() - 24 * 3600 * 1000) } },
+  })
+  if (gemeldet24h >= MELDE_LIMIT) {
+    return res.status(429).send(layout('Limit erreicht', side, `<h1>Tageslimit erreicht</h1>
+<p>Du hast in den letzten 24 Stunden ${MELDE_LIMIT} Quellen gemeldet — mehr geht pro Tag nicht (jede Quelle erzeugt dauerhafte Crawl- und AI-Last). Morgen geht's weiter; wenn du wirklich mehr brauchst, melde dich bei uns.</p>`, user))
+  }
   let url: string
   try {
     url = normalizeUrl(String(req.body.url))
+    await pruefeOeffentlich(url)
   } catch {
-    return res.send(layout('Fehler', side, '<p>Ungültige URL.</p><p><a href="/melden">Zurück</a></p>', user))
+    return res.send(layout('Fehler', side, '<p>Ungültige oder nicht erlaubte URL.</p><p><a href="/melden">Zurück</a></p>', user))
   }
   // Git-Profilseiten (github.com/user ohne Repo) blocken — wir crawlen bewusst nur gemeldete Repos.
   try {
@@ -263,6 +275,16 @@ app.post('/melden', async (req, res) => {
   const quelle = await prisma.quelle.create({
     data: { url, typ: erkenneTyp(url), fach: String(req.body.fach || '') || null, melderId: user.id },
   })
+  if (gemeldet24h + 1 === MELDE_LIMIT) {
+    // Genau beim Erreichen des Limits: Admin informieren (einmalig pro Schub)
+    const voll = await prisma.user.findUnique({ where: { id: user.id } })
+    sendeMail(
+      'marc@informatikgarten.ch',
+      'Atlas: Melde-Limit erreicht',
+      `<p>${esc(user.nickname)} (${esc(voll?.email ?? '?')}) hat soeben das Tageslimit von ${MELDE_LIMIT} gemeldeten Quellen erreicht.</p><p><a href="https://atlas.eduskript.org/quellen">Quellen ansehen</a></p>`,
+      'atlas-rate-limit'
+    ).catch((e) => console.error('Rate-Limit-Mail fehlgeschlagen:', e))
+  }
   const resultat = await crawlQuelle(quelle.id) // Prototyp: synchron; produktiv im nächtlichen Worker
   const body = `<h1>Gemeldet</h1>
 <p><code>${esc(url)}</code></p>

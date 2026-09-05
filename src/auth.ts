@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { sendeMail } from './mail.js'
 
 // Bewusst ohne better-auth: zwei Flows (Microsoft-Code-Flow, Magic-Link) direkt,
 // weil better-auth eigene String-ID-Tabellen erzwingt, die nicht zu unserem
@@ -82,24 +83,14 @@ export function magicTokenPruefen(token: string): string | null {
   return Date.now() < exp ? email : null
 }
 
-// ---------- Magic-Link-Versand über Brevo (gleiches Konto wie Eduskript) ----------
+// ---------- Magic-Link-Versand ----------
 
 export async function sendeMagicLink(email: string): Promise<void> {
   const link = `${BASE_URL}/api/auth/magic?token=${encodeURIComponent(magicToken(email))}`
-  if (!process.env.BREVO_API_KEY) {
-    console.log(`[Magic-Link, kein BREVO_API_KEY] ${link}`)
-    return
-  }
-  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
-    method: 'POST',
-    headers: { 'api-key': process.env.BREVO_API_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      sender: { name: 'Atlas by Eduskript', email: process.env.EMAIL_FROM ?? 'noreply@eduskript.org' },
-      to: [{ email }],
-      subject: 'Dein Anmelde-Link für Atlas',
-      htmlContent: `<p>Hallo!</p><p><a href="${link}">Bei Atlas anmelden</a> — der Link ist 15 Minuten gültig.</p><p>Falls du das nicht warst, ignoriere diese Mail.</p>`,
-      tags: ['atlas-magic-link', 'no-tracking'],
-    }),
-  })
-  if (!res.ok) throw new Error(`Brevo HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`)
+  await sendeMail(
+    email,
+    'Dein Anmelde-Link für Atlas',
+    `<p>Hallo!</p><p><a href="${link}">Bei Atlas anmelden</a> — der Link ist 15 Minuten gültig.</p><p>Falls du das nicht warst, ignoriere diese Mail.</p>`,
+    'atlas-magic-link'
+  )
 }

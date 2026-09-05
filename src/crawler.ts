@@ -5,6 +5,8 @@ import path from 'node:path'
 import { prisma } from './db.js'
 import { extract, stripTags } from './extract.js'
 import { klassifiziere, ZuordnungsOption } from './ai.js'
+import { sendeMail } from './mail.js'
+import { pruefeOeffentlich } from './netz.js'
 
 const TODES_SCHWELLE = 3
 const MAX_SEITEN = 200 // Deckel pro Quelle und Nacht — Rest kommt in späteren Läufen
@@ -587,6 +589,7 @@ export async function crawlQuelle(quelleId: number, force = false): Promise<stri
   const quelle = await prisma.quelle.findUniqueOrThrow({ where: { id: quelleId } })
   const ctx = await ladeKontext()
   try {
+    await pruefeOeffentlich(quelle.url) // SSRF-Schutz — kann sich auch nachträglich ändern (DNS)
     const resultat =
       quelle.typ === 'GIT' ? await crawlGit(quelle, ctx, force)
       : quelle.typ === 'CLOUD' ? await crawlCloud(quelle, ctx, force)
@@ -602,8 +605,19 @@ export async function crawlQuelle(quelleId: number, force = false): Promise<stri
   } catch (e) {
     const neu = quelle.todesCounter + 1
     await prisma.quelle.update({ where: { id: quelleId }, data: { todesCounter: neu } })
-    // TODO: bei Erreichen der Schwelle Mail an Melder:in (Infomaniak-SMTP)
-    return `Fehler (${(e as Error).message}) — Todescounter ${neu}${neu >= TODES_SCHWELLE ? ', Quelle ausgeblendet' : ''}`
+    if (neu === TODES_SCHWELLE) {
+      // Genau beim Erreichen der Schwelle: Melder:in informieren (einmalig)
+      const melder = await prisma.user.findUnique({ where: { id: quelle.melderId } })
+      if (melder) {
+        await sendeMail(
+          melder.email,
+          'Atlas: deine Quelle ist nicht mehr erreichbar',
+          `<p>Hallo ${melder.nickname}</p><p>Deine gemeldete Quelle <a href="${quelle.url}">${quelle.titel ?? quelle.url}</a> war drei Nächte in Folge nicht erreichbar und wird auf Atlas vorerst ausgeblendet.</p><p>Sobald sie wieder erreichbar ist, taucht sie automatisch wieder auf — es ist nichts weiter nötig. Falls sie umgezogen ist, melde einfach die neue Adresse auf <a href="https://atlas.eduskript.org/melden">atlas.eduskript.org</a>.</p>`,
+          'atlas-tote-quelle'
+        ).catch((f) => console.error('Tote-Link-Mail fehlgeschlagen:', f))
+      }
+    }
+    return `Fehler (${(e as Error).message}) — Todescounter ${neu}${neu >= TODES_SCHWELLE ? ', Quelle ausgeblendet + Mail an Melder:in' : ''}`
   }
 }
 
