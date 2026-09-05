@@ -68,6 +68,9 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
   .pillbar button, .pillbar a.pbtn { border: none; background: none; color: var(--fg); font: inherit; font-size: .82rem; padding: .35rem .55rem; cursor: pointer; display: flex; align-items: center; gap: .3rem; text-decoration: none; }
   .pillbar button:hover, .pillbar a.pbtn:hover { background: var(--bg); }
   .pillbar .sep { width: 1px; background: var(--rand); }
+  .pillbar .melden-pill { background: var(--primary); border-color: var(--primary); }
+  .pillbar .melden-pill a.pbtn { color: #fff; font-weight: 500; }
+  .pillbar .melden-pill a.pbtn:hover { background: rgb(255 255 255 / .15); }
   .nur-dunkel { display: none; } [data-theme="dark"] .nur-dunkel { display: flex; } [data-theme="dark"] .nur-hell { display: none; }
   .nur-hell { display: flex; }
   .qfilter { margin-bottom: 1rem; display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
@@ -150,12 +153,12 @@ export function sidebar(d: SidebarDaten): string {
   <div class="pill">
     <button onclick="schrift(-10)" title="Schrift verkleinern">A−</button><div class="sep"></div><button onclick="themeWechseln()" title="Hell/Dunkel"><span class="nur-hell">${moon}</span><span class="nur-dunkel">${sun}</span></button><div class="sep"></div><button onclick="schrift(10)" title="Schrift vergrössern">A+</button>
   </div>
-  <div class="pill"><a class="pbtn" href="/melden" title="Material hinzufügen">${plus}</a></div>
   <div class="pill">${
     d.user
       ? `<button onclick="document.getElementById('lo').submit()" title="${esc(d.user.nickname)} — Abmelden">${person}</button><form id="lo" method="post" action="/logout" hidden></form>`
       : `<a class="pbtn" href="/login" title="Sign in">${login}</a>`
   }</div>
+  <div class="pill melden-pill"><a class="pbtn" href="/melden" title="Nur ein Link — den Rest macht Atlas">${plus}Material teilen</a></div>
 </div>
 <select onchange="location='/fach/'+this.value">
 ${d.faecher.map((f) => `<option value="${esc(f.code)}"${f.code === d.fachCode ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}
