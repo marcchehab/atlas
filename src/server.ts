@@ -3,6 +3,7 @@ import cookieParser from 'cookie-parser'
 import path from 'node:path'
 import { prisma, initDb, normalizeUrl, erkenneTyp } from './db.js'
 import { crawlQuelle } from './crawler.js'
+import * as auth from './auth.js'
 import { layout, esc, kürze, sidebar, materialKarte, voteButtons, MaterialKarte } from './views.js'
 
 const app = express()
@@ -246,27 +247,74 @@ app.post('/vote/:id/:richtung', async (req, res) => {
   res.send(voteButtons({ id: materialId, score: agg._sum.wert ?? 0, meinVote }, true))
 })
 
-// Auth-Stub: Nickname + E-Mail. TODO produktiv: better-auth (Microsoft OAuth + Magic-Link).
+// ---------- Auth: Microsoft OAuth (Entra) + Magic-Link (Brevo) ----------
+
+function loginAbschliessen(res: express.Response, userId: number, weiter: string) {
+  res.cookie('uid', String(userId), { signed: true, httpOnly: true, sameSite: 'lax', maxAge: 180 * 24 * 3600 * 1000 })
+  res.redirect(weiter.startsWith('/') ? weiter : '/') // nur relative Ziele — kein Open Redirect
+}
+
+async function userFuerEmail(email: string, name?: string): Promise<number> {
+  const nickname = (name ?? email.split('@')[0]).trim()
+  const user = await prisma.user.upsert({ where: { email }, create: { email, nickname }, update: {} })
+  return user.id
+}
+
 app.get('/login', async (req, res) => {
   const side = await baueSidebar(STANDARD_FACH, undefined, null)
+  const weiter = esc(String(req.query.weiter ?? '/'))
   const body = `<h1>Anmelden</h1>
-<p class="hinweis">Prototyp-Login ohne Verifikation. Produktiv: Microsoft-OAuth + Magic-Link (better-auth).</p>
-<form method="post">
-  <input type="hidden" name="weiter" value="${esc(String(req.query.weiter ?? '/'))}">
-  <p><input name="nickname" required placeholder="Nickname"></p>
-  <p><input type="email" name="email" required placeholder="E-Mail"></p>
-  <p><button>Anmelden</button></p>
+${auth.microsoftKonfiguriert() ? `<p><a href="/auth/microsoft?weiter=${weiter}"><button>Mit Microsoft anmelden</button></a></p><p class="meta">Schul- oder privates Microsoft-Konto.</p><hr>` : ''}
+<p>Oder per E-Mail — wir schicken dir einen Anmelde-Link:</p>
+<form method="post" action="/auth/magic">
+  <input type="hidden" name="weiter" value="${weiter}">
+  <p><input type="email" name="email" required placeholder="E-Mail"> <button>Link senden</button></p>
 </form>`
   res.send(layout('Anmelden', side, body, null))
 })
 
-app.post('/login', async (req, res) => {
+app.get('/auth/microsoft', (req, res) => {
+  const state = auth.neuerState()
+  res.cookie('oauth', JSON.stringify({ state, weiter: String(req.query.weiter ?? '/') }), {
+    signed: true, httpOnly: true, sameSite: 'lax', maxAge: 10 * 60 * 1000,
+  })
+  res.redirect(auth.microsoftAuthUrl(state))
+})
+
+app.get('/api/auth/callback/microsoft', async (req, res) => {
+  try {
+    const cookie = JSON.parse(String(req.signedCookies?.oauth ?? '{}')) as { state?: string; weiter?: string }
+    if (!req.query.code || !req.query.state || req.query.state !== cookie.state || !auth.statePruefen(cookie.state ?? '')) {
+      throw new Error('State ungültig')
+    }
+    res.clearCookie('oauth')
+    const { email, name } = await auth.microsoftCallback(String(req.query.code))
+    loginAbschliessen(res, await userFuerEmail(email, name), cookie.weiter ?? '/')
+  } catch (e) {
+    const side = await baueSidebar(STANDARD_FACH, undefined, null)
+    res.status(400).send(layout('Fehler', side, `<p>Anmeldung fehlgeschlagen (${esc((e as Error).message)}). <a href="/login">Nochmal versuchen</a></p>`, null))
+  }
+})
+
+app.post('/auth/magic', async (req, res) => {
   const email = String(req.body.email ?? '').toLowerCase().trim()
-  const nickname = String(req.body.nickname ?? '').trim()
-  if (!email || !nickname) return res.redirect('/login')
-  const user = await prisma.user.upsert({ where: { email }, create: { email, nickname }, update: {} })
-  res.cookie('uid', String(user.id), { signed: true, httpOnly: true, sameSite: 'lax' })
-  res.redirect(String(req.body.weiter ?? '/'))
+  const side = await baueSidebar(STANDARD_FACH, undefined, null)
+  if (!email.includes('@')) return res.redirect('/login')
+  try {
+    await auth.sendeMagicLink(email)
+  } catch (e) {
+    return res.status(500).send(layout('Fehler', side, `<p>Mail-Versand fehlgeschlagen (${esc((e as Error).message)}). <a href="/login">Zurück</a></p>`, null))
+  }
+  res.send(layout('Mail unterwegs', side, `<h1>Fast geschafft</h1><p>Wir haben einen Anmelde-Link an <strong>${esc(email)}</strong> geschickt (15 Minuten gültig). Schau auch im Spam nach.</p>`, null))
+})
+
+app.get('/api/auth/magic', async (req, res) => {
+  const email = auth.magicTokenPruefen(String(req.query.token ?? ''))
+  if (!email) {
+    const side = await baueSidebar(STANDARD_FACH, undefined, null)
+    return res.status(400).send(layout('Link ungültig', side, '<p>Der Link ist ungültig oder abgelaufen. <a href="/login">Neu anfordern</a></p>', null))
+  }
+  loginAbschliessen(res, await userFuerEmail(email), '/')
 })
 
 app.post('/logout', (_req, res) => {
