@@ -99,7 +99,11 @@ async function ladeMaterialKarten(where: object, userId: number | null, fachCode
 }
 
 async function filterDaten(userId: number | null): Promise<[string[], string[], string[], TagVorschlag[]]> {
-  const quellen = await prisma.quelle.findMany({ select: { url: true } })
+  // Nur Quellen mit sichtbaren Materialien — leere/tote gehören nicht in die Filterleiste
+  const quellen = await prisma.quelle.findMany({
+    where: { todesCounter: { lt: 3 }, materialien: { some: { qualityScore: { gte: 20 }, versteckt: false, fehlCounter: { lt: 3 } } } },
+    select: { url: true },
+  })
   const tags = await prisma.tag.findMany({ where: { status: 'AKTIV' }, orderBy: { name: 'asc' }, select: { name: true } })
   const formate = await prisma.material.findMany({ where: { format: { not: null } }, select: { format: true }, distinct: ['format'] })
   const vorschlaege = await prisma.tag.findMany({
