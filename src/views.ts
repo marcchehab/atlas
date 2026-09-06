@@ -329,7 +329,7 @@ export function sidebar(d: SidebarDaten): string {
   const stift = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg>`
   const logout = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`
   const plus = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>`
-  return `<div class="logo-svg" style="width:170px;margin:0 auto .3rem">${LOGO_INLINE.replace('href="/"', `href="${basis}"`)}</div>
+  return `<div class="logo-svg" style="width:170px;margin:0 auto .3rem">${LOGO_INLINE}</div>
 <div class="untertitel" style="text-align:center">Unterrichtsmaterialien Schweizer Gymnasien</div>
 <div class="pillbar">
   <div class="pill melden-pill"><a class="pbtn" href="/melden?fach=${esc(d.fachCode)}" title="Nur ein Link — den Rest macht Atlas">+ Quelle melden</a></div>
