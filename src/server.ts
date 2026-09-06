@@ -142,15 +142,14 @@ app.get('/', async (req, res) => {
   ])
   const body = `<h1>Unterrichtsmaterial für Schweizer Gymnasien</h1>
 <p>Atlas sammelt frei zugängliches Unterrichtsmaterial von Lehrpersonen für Maturitätsschulen und ordnet es den Lernzielen des <a href="https://edudoc.ch/record/232281/files/Rahmenlehrplan-maturitatsschulen.pdf" rel="noopener">Rahmenlehrplans Maturitätsschulen (EDK 2024)</a> zu — mit Kurzzusammenfassung, Link zur Originalquelle und Bewertungen aus der Community.</p>
+<p>Atlas ist im Aufbau: Als Pilot deckt es das Grundlagenfach Informatik ab — weitere Fächer folgen.</p>
 <p class="meta">${materialien} Materialien aus ${quellen} Quellen · kostenlos und ohne Registrierung durchsuchbar</p>
 <form class="suche" action="/suche"><input type="search" name="q" placeholder="Volltextsuche, z.B. binärsystem arbeitsblatt"><button>Suchen</button></form>
 <h2>Fächer</h2>
 ${faecher.map((f) => `<div class="karte">
 <h3><a href="/fach/${esc(f.code)}">${esc(f.name)}</a></h3>
 <p class="meta">${f.lerngebiete.map((lg) => `${lg.nummer}. ${esc(lg.name)}: ${lg.teilgebiete.map((tg) => `<a href="${tgPfad(f.code, tg.code, tg.name)}">${esc(tg.name)}</a>`).join(' · ')}`).join('<br>')}</p>
-</div>`).join('\n')}
-<p class="meta">Atlas startet mit dem Grundlagenfach Informatik, ist aber fächerneutral gebaut — weitere Fächer folgen, sobald Lehrpersonen Material melden.</p>
-<h2>So funktioniert Atlas</h2>
+</div>`).join('\n')}<h2>So funktioniert Atlas</h2>
 <ol>
 <li><strong>Melden:</strong> Du meldest nur einen Link — deine Material-Website, ein Git-Repo oder einen Cloud-Ordner.</li>
 <li><strong>Sammeln:</strong> Atlas liest die Quelle automatisch aus und hält sie aktuell. Gespeichert werden Links, keine Kopien.</li>
