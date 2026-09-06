@@ -332,7 +332,7 @@ export function sidebar(d: SidebarDaten): string {
   return `<div class="logo-svg" style="width:170px;margin:0 auto .3rem">${LOGO_INLINE.replace('href="/"', `href="${basis}"`)}</div>
 <div class="untertitel" style="text-align:center">Unterrichtsmaterialien Schweizer Gymnasien</div>
 <div class="pillbar">
-  <div class="pill melden-pill"><a class="pbtn" href="/melden?fach=${esc(d.fachCode)}" title="Nur ein Link — den Rest macht Atlas">Material teilen</a></div>
+  <div class="pill melden-pill"><a class="pbtn" href="/melden?fach=${esc(d.fachCode)}" title="Nur ein Link — den Rest macht Atlas">+ Quelle melden</a></div>
   ${
     d.user
       ? `<div class="pill">

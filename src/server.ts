@@ -151,15 +151,15 @@ ${faecher.map((f) => `<div class="karte">
 <p class="meta">${f.lerngebiete.map((lg) => `${lg.nummer}. ${esc(lg.name)}: ${lg.teilgebiete.map((tg) => `<a href="${tgPfad(f.code, tg.code, tg.name)}">${esc(tg.name)}</a>`).join(' · ')}`).join('<br>')}</p>
 </div>`).join('\n')}<h2>So funktioniert Atlas</h2>
 <ol>
-<li><strong>Melden:</strong> Du meldest nur einen Link — deine Material-Website, ein Git-Repo oder einen Cloud-Ordner.</li>
+<li><strong>Melden:</strong> Du meldest nur einen Link auf eine öffentliche Quelle — eine Material-Website, ein Git-Repo oder einen Cloud-Ordner. Sie muss nicht von dir sein.</li>
 <li><strong>Sammeln:</strong> Atlas liest die Quelle automatisch aus und hält sie aktuell. Gespeichert werden Links, keine Kopien.</li>
 <li><strong>Einordnen:</strong> Jedes Material wird den Lernzielen des Lehrplans zugeordnet, zusammengefasst und getaggt — die Community bewertet per Upvote.</li>
 </ol>
-<p><a href="/melden">Eigene Materialien teilen</a> · <a href="/quellen">Alle Quellen ansehen</a></p>`
+<p><a href="/melden">Quelle melden</a> · <a href="/quellen">Alle Quellen ansehen</a></p>`
   res.send(layout('Atlas – Unterrichtsmaterial für Schweizer Gymnasien', side, body, user, {
     vollTitel: true,
     pfad: '/',
-    beschreibung: `Frei zugängliches Unterrichtsmaterial für Schweizer Gymnasien, geordnet nach den Lernzielen des Rahmenlehrplans Maturitätsschulen (EDK 2024). ${materialien} Materialien, von Lehrpersonen geteilt und von der Community bewertet.`,
+    beschreibung: `Frei zugängliches Unterrichtsmaterial für Schweizer Gymnasien, geordnet nach den Lernzielen des Rahmenlehrplans Maturitätsschulen (EDK 2024). ${materialien} Materialien aus öffentlichen Quellen, von der Community gemeldet und bewertet.`,
     jsonLd: {
       '@context': 'https://schema.org',
       '@type': 'WebSite',
@@ -340,7 +340,7 @@ app.get('/melden', async (req, res) => {
 <h2>Was kann gemeldet werden?</h2>
 <div class="karte">
   <h3>Websites</h3>
-  <p style="margin:.2rem 0">Deine Material-Website oder ein einzelner Kurs darauf. Atlas findet die Unterseiten selbst (Sitemap oder Links) und hält sie aktuell.</p>
+  <p style="margin:.2rem 0">Eine öffentliche Material-Website oder ein einzelner Kurs darauf. Atlas findet die Unterseiten selbst (Sitemap oder Links) und hält sie aktuell.</p>
   <p class="meta">Beispiel: <code>https://oinf.ch/</code></p>
 </div>
 <div class="karte">
