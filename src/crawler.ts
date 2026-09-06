@@ -189,6 +189,11 @@ async function ladeSitemap(origin: string): Promise<string[] | null> {
 }
 
 async function crawlWebsite(quelle: { id: number; url: string }, ctx: KlassifikationsKontext, force: boolean): Promise<string> {
+  // Buch-SPA erkennen (leere JS-Shell, Inhalte als .md daneben) — dann direkt lesen statt spidern
+  const spaBasis = (() => { const u = new URL(quelle.url); u.search = ''; u.hash = ''; return u.toString().replace(/\/$/, '') })()
+  const spaSeiten = await listeBuchSpaSeiten(spaBasis)
+  if (spaSeiten) return crawlBuchSpa(quelle, spaSeiten, ctx, force)
+
   const startRes = await fetchSeite(quelle.url)
   if (!startRes.ok) throw new Error(`HTTP ${startRes.status}`)
   const startHtml = await startRes.text()
@@ -265,6 +270,111 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   const gedeckelt = queue.length > 0
   const aufraeumen = await raeumeAuf(quelle.id, gesehen, gedeckelt)
   return `${besucht} Seiten${gedeckelt ? ` (gedeckelt, ${MAX_SEITEN}/Nacht, ${queue.length} offen)` : ''} via ${sitemap ? 'Sitemap' : 'Link-Spider'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
+}
+
+// ---------- Buch-SPA-Connector (mygymer-Stil) ----------
+// Vue-SPA (z.B. informatik.mygymer.ch/base): serverseitig nur leere Shell, aber die
+// Inhalte liegen als offen abrufbare Markdown-Dateien daneben. Erkennung über
+// <basis>/config/config.json mit "books"-Liste; pro Buch beschreibt book.json den
+// Seitenbaum (Pfade + stabile IDs). Die Site selbst verlinkt Seiten als ?b=<buch>&p=<id>.
+
+interface BuchSeite {
+  mdUrl: string
+  link: string // Permalink im Format der Site
+}
+
+interface BuchKnoten {
+  id?: number
+  page?: string
+  include?: string
+  items?: BuchKnoten[]
+}
+
+async function ladeSpaJson(url: string): Promise<unknown | null> {
+  try {
+    const res = await fetchSeite(url)
+    if (!res.ok) return null
+    return JSON.parse(await res.text())
+  } catch {
+    return null
+  }
+}
+
+export async function listeBuchSpaSeiten(basis: string): Promise<BuchSeite[] | null> {
+  const config = (await ladeSpaJson(`${basis}/config/config.json`)) as { books?: unknown } | null
+  if (!config || !Array.isArray(config.books)) return null
+
+  // Manifeste in Reihenfolge laden — spätere überschreiben frühere Namen (wie die SPA selbst)
+  const buecher = new Map<string, string>() // Buchname → book.json-Pfad
+  for (const manifest of config.books) {
+    if (typeof manifest !== 'string') continue
+    const m = (await ladeSpaJson(`${basis}/${manifest}`)) as Record<string, string> | null
+    if (m) for (const [name, pfad] of Object.entries(m)) buecher.set(name, pfad)
+  }
+
+  const seiten: BuchSeite[] = []
+  const geplant = new Set<string>()
+  for (const [name, pfad] of buecher) {
+    const buch = (await ladeSpaJson(`${basis}/${pfad}`)) as (BuchKnoten & { base?: string }) | null
+    if (!buch) continue
+    const base = buch.base ?? ''
+    const walk = (node: BuchKnoten) => {
+      if (node.include) return // eingebundenes Fremd-Buch — kommt als eigenes Buch dran
+      const page = node.page || 'index'
+      // Absolute Pfade zeigen in andere Bücher (dort erfasst); wie expandPath() der SPA
+      if (page.charAt(0) !== '/') {
+        const voll = base ? `${base}/${page}` : page
+        const mdUrl = `${basis}/${voll}${voll.endsWith('/') ? 'index.md' : '.md'}`
+        if (node.id != null && !geplant.has(mdUrl)) {
+          geplant.add(mdUrl)
+          seiten.push({ mdUrl, link: `${basis}/?b=${name}&p=${node.id}` })
+        }
+      }
+      for (const kind of node.items ?? []) walk(kind)
+    }
+    walk(buch)
+  }
+  return seiten.length ? seiten : null
+}
+
+async function crawlBuchSpa(quelle: { id: number }, seiten: BuchSeite[], ctx: KlassifikationsKontext, force: boolean): Promise<string> {
+  const stat = { neu: 0, aktualisiert: 0, unverändert: 0, abgelehnt: 0, duplikat: 0, fehler: 0 }
+  const gesehen = new Set<string>()
+  const verarbeitet = () => stat.neu + stat.aktualisiert + stat.abgelehnt
+  let besucht = 0
+  for (const s of seiten) {
+    if (verarbeitet() >= MAX_SEITEN) break
+    besucht++
+    try {
+      let res = await fetchSeite(s.mdUrl)
+      // Wie loadPage() der SPA: Ordner-Seiten fallen von index.md auf README.md zurück
+      if (!res.ok && s.mdUrl.endsWith('/index.md')) res = await fetchSeite(s.mdUrl.replace(/index\.md$/, 'README.md'))
+      if (!res.ok) {
+        stat.fehler++
+        if (stat.fehler <= 8) console.error(`Crawl-Fehler ${s.mdUrl}: HTTP ${res.status}`)
+        continue
+      }
+      const text = await res.text()
+      const h = hash(text)
+      gesehen.add(s.link)
+      const vorhanden = await prisma.material.findUnique({ where: { url: s.link } })
+      if (vorhanden && vorhanden.contentHash === h && !force) { stat.unverändert++; continue }
+      const dupe = await prisma.material.findFirst({ where: { quelleId: quelle.id, contentHash: h, url: { not: s.link } } })
+      if (dupe) {
+        if (vorhanden) await prisma.material.delete({ where: { url: s.link } })
+        gesehen.delete(s.link)
+        stat.duplikat++
+        continue
+      }
+      stat[await verarbeiteMaterial(quelle.id, s.link, text, h, ctx, force, true)]++
+    } catch (e) {
+      stat.fehler++
+      if (stat.fehler <= 5) console.error(`Crawl-Fehler ${s.mdUrl}: ${(e as Error).message}`)
+    }
+  }
+  const gedeckelt = besucht < seiten.length
+  const aufraeumen = await raeumeAuf(quelle.id, gesehen, gedeckelt)
+  return `${besucht}/${seiten.length} Buchseiten via book.json${gedeckelt ? ` (gedeckelt, ${MAX_SEITEN}/Nacht)` : ''}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
 }
 
 // ---------- Git-Connector: Repo klonen, Markdown-Dateien als Materialien ----------

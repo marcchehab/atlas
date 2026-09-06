@@ -13,6 +13,7 @@
 
 ## Done
 
+- Buch-SPA-Connector (mygymer-Stil): config/config.json + book.json → offene .md-Dateien lesen, Permalinks ?b=&p=
 - Eduskript-Verzeichnis-Sync (sites.json → Quellen, Opt-out drüben; Pfad-Scoping + Sitemap-Fallback im Spider)
 - eduskript.org-Pfad-Sites gruppieren wie GitHub-User
 - Quellen-Sperrliste: gelöschte Quellen werden vom Sync nicht wiederbelebt (Neu-Melden hebt auf)
