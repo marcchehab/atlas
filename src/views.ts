@@ -402,7 +402,7 @@ export function quellenKey(url: string): string {
   try {
     const u = new URL(url)
     const host = u.hostname.replace(/^www\./, '')
-    if (['github.com', 'gitlab.com', 'codeberg.org'].includes(host)) return `${host}/${u.pathname.split('/').filter(Boolean)[0] ?? ''}`
+    if (['github.com', 'gitlab.com', 'codeberg.org', 'eduskript.org'].includes(host)) return `${host}/${u.pathname.split('/').filter(Boolean)[0] ?? ''}`
     return host
   } catch {
     return url
@@ -414,7 +414,7 @@ export function quellenLabel(url: string): string {
   try {
     const u = new URL(url)
     const host = u.hostname.replace(/^www\./, '')
-    if (host === 'github.com' || host === 'gitlab.com' || host === 'codeberg.org') {
+    if (['github.com', 'gitlab.com', 'codeberg.org', 'eduskript.org'].includes(host)) {
       const user = u.pathname.split('/')[1] ?? ''
       return `${host}/<strong>${esc(user)}</strong>`
     }

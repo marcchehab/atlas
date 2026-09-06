@@ -353,7 +353,7 @@ async function quellenListe(user: Nutzer | null): Promise<string> {
     try {
       const u = new URL(q.url)
       const host = u.hostname.replace(/^www\./, '')
-      key = ['github.com', 'gitlab.com', 'codeberg.org'].includes(host) ? `${host}/${u.pathname.split('/')[1] ?? ''}` : host
+      key = ['github.com', 'gitlab.com', 'codeberg.org', 'eduskript.org'].includes(host) ? `${host}/${u.pathname.split('/')[1] ?? ''}` : host
     } catch { key = q.url }
     if (!gruppen.has(key)) gruppen.set(key, [])
     gruppen.get(key)!.push(q)
