@@ -10,7 +10,7 @@ import { pruefeOeffentlich } from './netz.js'
 import { syncEduskriptVerzeichnis } from './verzeichnis.js'
 
 const TODES_SCHWELLE = 3
-const MAX_SEITEN = 200 // Deckel pro Quelle und Nacht — Rest kommt in späteren Läufen
+const MAX_SEITEN = Number(process.env.MAX_SEITEN) || 200 // Deckel pro Quelle und Nacht — Rest kommt in späteren Läufen; per Env übersteuerbar für manuelle Läufe
 
 const hash = (s: string | Buffer) => crypto.createHash('sha256').update(s).digest('hex')
 
