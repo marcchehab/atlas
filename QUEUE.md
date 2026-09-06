@@ -14,6 +14,14 @@
 ## Done
 
 - Eduskript-Verzeichnis-Sync (sites.json → Quellen, Opt-out drüben; Pfad-Scoping + Sitemap-Fallback im Spider)
+- eduskript.org-Pfad-Sites gruppieren wie GitHub-User
+- Quellen-Sperrliste: gelöschte Quellen werden vom Sync nicht wiederbelebt (Neu-Melden hebt auf)
+- /quellen: leere/tote Quellen in zugeklapptem Bereich; Filterleiste nur Quellen mit Inhalten
+- Async-Melden mit Live-Status-Seite; Quellen löschen (Admin alle, Melder:in eigene, dezenter Papierkorb)
+- Rekursiver Link-Spider (BFS), cleanUrls-Retry, Deckel zählt AI-Verarbeitungen, Crawl-Fehler-Logging
+- Admin: Tags inline umbenennen; AI-Vorschläge: Top 5 pro Lauf; max 5 Vorschlags-Chips
+- Deploy-Hook wartet auf laufenden Crawl (Container-Rebuild killt exec)
+- Resizeable Sidebar, Nickname-Dialog, Filter-Reset
 
 - in den quellen, tags und format pills klein die aktuelle anzahl (muss sich natürilch anpassen wenn filter ändert)
 - Nickname ändern können
