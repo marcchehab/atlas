@@ -19,13 +19,52 @@ export function kürze(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s
 }
 
-export function layout(titel: string, sidebar: string, body: string, user?: { nickname: string } | null): string {
+export const BASE_URL = process.env.BASE_URL ?? 'https://atlas.eduskript.org'
+
+// SEO-Slugs: Keywords in die URL (/fach/…/k/1.2.1-begriff-algorithmus-definieren).
+// Stoppwörter raus, damit die tragenden Begriffe vorne stehen; max 5 Wörter.
+const STOPP = new Set('der die das den dem des ein eine einer eines einem und oder mit für von im in zu sie sich auf aus bei als z b zb ihre seine indem mittels können'.split(' '))
+export function slug(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter((w) => w && !STOPP.has(w))
+    .slice(0, 5)
+    .join('-')
+}
+export const tgPfad = (fach: string, code: string, name: string) => `/fach/${fach}/t/${code}-${slug(name)}`
+export const koPfad = (fach: string, code: string, text: string) => `/fach/${fach}/k/${code}-${slug(text)}`
+export const grossErst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
+export interface SeoDaten {
+  beschreibung?: string
+  pfad?: string // kanonischer Pfad → canonical + og:url
+  robots?: string // z.B. "noindex,follow" für Suchseiten
+  vollTitel?: boolean // Titel ohne "– Atlas"-Suffix (Homepage)
+  jsonLd?: object
+}
+
+export function layout(titel: string, sidebar: string, body: string, user?: { nickname: string } | null, seo?: SeoDaten): string {
+  const vollerTitel = seo?.vollTitel ? titel : `${titel} – Atlas`
   return `<!doctype html>
 <html lang="de">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(titel)} – Atlas</title>
+<title>${esc(vollerTitel)}</title>
+${seo?.beschreibung ? `<meta name="description" content="${esc(seo.beschreibung)}">` : ''}
+${seo?.robots ? `<meta name="robots" content="${esc(seo.robots)}">` : ''}
+${seo?.pfad != null ? `<link rel="canonical" href="${esc(BASE_URL + seo.pfad)}">
+<meta property="og:url" content="${esc(BASE_URL + seo.pfad)}">` : ''}
+<meta property="og:title" content="${esc(vollerTitel)}">
+${seo?.beschreibung ? `<meta property="og:description" content="${esc(seo.beschreibung)}">` : ''}
+<meta property="og:site_name" content="Atlas">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="de_CH">
+${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)}</script>` : ''}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <script src="/htmx.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -123,6 +162,12 @@ export function layout(titel: string, sidebar: string, body: string, user?: { ni
   .logo-svg svg { width: 100%; height: auto; display: block; }
   .logo-svg .mark-bg { fill: var(--bg); } .logo-svg .mark { stroke: var(--meta); }
   .logo-svg .wort { fill: var(--fg); } .logo-svg .sub { fill: var(--meta); }
+  .logo-svg .sub-brand { fill: color-mix(in oklab, var(--primary) 55%, var(--meta)); }
+  .logo-svg .sub-link:hover .sub-brand { fill: var(--primary); }
+  .logo-svg .sub-org { font: 700 29.3px 'Barlow Condensed', sans-serif; }
+  .logo-svg a:hover { text-decoration: none; }
+  .logo-svg .sub-strich { fill: none; }
+  .logo-svg .sub-link:hover .sub-strich { fill: var(--primary); }
 
   .app { display: flex; min-height: 100vh; }
   .sb-griff { width: 5px; flex-shrink: 0; cursor: col-resize; background: transparent; margin-left: -3px; z-index: 30; }
@@ -284,7 +329,7 @@ export function sidebar(d: SidebarDaten): string {
   const stift = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg>`
   const logout = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`
   const plus = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>`
-  return `<a href="${basis}" class="logo-svg" aria-label="Atlas" style="width:170px;display:block;margin:0 auto .3rem">${LOGO_INLINE}</a>
+  return `<div class="logo-svg" style="width:170px;margin:0 auto .3rem">${LOGO_INLINE.replace('href="/"', `href="${basis}"`)}</div>
 <div class="untertitel" style="text-align:center">Unterrichtsmaterialien Schweizer Gymnasien</div>
 <div class="pillbar">
   <div class="pill melden-pill"><a class="pbtn" href="/melden?fach=${esc(d.fachCode)}" title="Nur ein Link — den Rest macht Atlas">Material teilen</a></div>
@@ -304,9 +349,9 @@ ${d.lerngebiete
     (lg) => `<div class="lg">${lg.nummer}. ${esc(lg.name)}</div>
 ${lg.teilgebiete
   .map(
-    (tg) => `<a class="tg${d.aktiv === 'T' + tg.code ? ' aktiv' : ''}" href="${basis}/t/${tg.code}">${tg.code} ${esc(tg.name)} <span class="anzahl">${tg.anzahl || ''}</span></a>
+    (tg) => `<a class="tg${d.aktiv === 'T' + tg.code ? ' aktiv' : ''}" href="${tgPfad(d.fachCode, tg.code, tg.name)}">${tg.code} ${esc(tg.name)} <span class="anzahl">${tg.anzahl || ''}</span></a>
 ${tg.kompetenzen
-  .map((ko) => `<a class="ko${d.aktiv === 'K' + ko.code ? ' aktiv' : ''}" href="${basis}/k/${ko.code}" title="${esc(ko.text)}">${esc(kürze(ko.text, 48))} <span class="anzahl">${ko.anzahl || ''}</span></a>`)
+  .map((ko) => `<a class="ko${d.aktiv === 'K' + ko.code ? ' aktiv' : ''}" href="${koPfad(d.fachCode, ko.code, ko.text)}" title="${esc(ko.text)}">${esc(kürze(ko.text, 48))} <span class="anzahl">${ko.anzahl || ''}</span></a>`)
   .join('\n')}`
   )
   .join('\n')}`
@@ -343,6 +388,12 @@ export function loginSeite(opts: { microsoft: boolean; weiter: string; hinweis?:
   .logo-svg svg { width: 100%; height: auto; display: block; }
   .logo-svg .mark-bg { fill: var(--bg); } .logo-svg .mark { stroke: var(--meta); }
   .logo-svg .wort { fill: var(--fg); } .logo-svg .sub { fill: var(--meta); }
+  .logo-svg .sub-brand { fill: color-mix(in oklab, var(--primary) 55%, var(--meta)); }
+  .logo-svg .sub-link:hover .sub-brand { fill: var(--primary); }
+  .logo-svg .sub-org { font: 700 29.3px 'Barlow Condensed', sans-serif; }
+  .logo-svg a:hover { text-decoration: none; }
+  .logo-svg .sub-strich { fill: none; }
+  .logo-svg .sub-link:hover .sub-strich { fill: var(--primary); }
   h1 { font-family: 'Barlow Condensed', sans-serif; font-size: 1.6rem; text-align: center; margin: 0 0 .3rem; }
   .sub { text-align: center; color: var(--meta); font-size: .9rem; margin: 0 0 1.5rem; }
   .btn { display: flex; align-items: center; justify-content: center; width: 100%; padding: .6rem 1rem; border-radius: 8px; font: inherit; font-weight: 500; cursor: pointer; text-decoration: none; }
@@ -358,7 +409,7 @@ export function loginSeite(opts: { microsoft: boolean; weiter: string; hinweis?:
 </head>
 <body>
 <div class="card">
-  <div class="kopf"><a href="/" class="logo-svg" style="width:160px;display:block">${LOGO_INLINE}</a></div>
+  <div class="kopf"><div class="logo-svg" style="width:160px">${LOGO_INLINE}</div></div>
   <h1>Anmelden</h1>
   <p class="sub">Zum Melden und Bewerten von Materialien</p>
   ${opts.hinweis ? `<div class="hinweis">${esc(opts.hinweis)}</div>` : ''}

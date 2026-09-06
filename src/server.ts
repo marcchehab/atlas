@@ -7,7 +7,7 @@ import { crawlQuelle } from './crawler.js'
 import * as auth from './auth.js'
 import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
-import { layout, esc, kürze, sidebar, materialKarte, voteButtons, loginSeite, filterLeiste, tagVorschlagChip, quellenKey, MaterialKarte, TagVorschlag } from './views.js'
+import { layout, esc, kürze, sidebar, materialKarte, voteButtons, loginSeite, filterLeiste, tagVorschlagChip, quellenKey, MaterialKarte, TagVorschlag, BASE_URL, tgPfad, koPfad, grossErst } from './views.js'
 
 const app = express()
 const SECRET = process.env.SESSION_SECRET ?? 'dev'
@@ -87,8 +87,8 @@ async function ladeMaterialKarten(where: object, userId: number | null, fachCode
       format: m.format,
       zuordnungen: m.zuordnungen.map((z) =>
         z.kompetenz
-          ? { code: z.kompetenz.code, label: z.kompetenz.text, href: `/fach/${fachCode}/k/${z.kompetenz.code}` }
-          : { code: `${z.teilgebiet.code} (ganz)`, label: z.teilgebiet.name, href: `/fach/${fachCode}/t/${z.teilgebiet.code}` }
+          ? { code: z.kompetenz.code, label: z.kompetenz.text, href: koPfad(fachCode, z.kompetenz.code, z.kompetenz.text) }
+          : { code: `${z.teilgebiet.code} (ganz)`, label: z.teilgebiet.name, href: tgPfad(fachCode, z.teilgebiet.code, z.teilgebiet.name) }
       ),
       score: m.upvotes.reduce((s, u) => s + u.wert, 0),
       meinVote: m.upvotes.find((u) => u.userId === userId)?.wert ?? 0,
@@ -122,13 +122,99 @@ async function filterDaten(userId: number | null): Promise<[string[], string[], 
   ]
 }
 
-app.get('/', (_req, res) => res.redirect(`/fach/${STANDARD_FACH}`))
+// HTML-404 mit Layout statt Plaintext — kein toter Endpunkt für Besucher:innen und Crawler
+async function nichtGefunden(res: express.Response, was: string, user: Nutzer | null) {
+  const side = await baueSidebar(STANDARD_FACH, undefined, user)
+  res.status(404).send(layout('Nicht gefunden', side, `<h1>${esc(was)} nicht gefunden</h1>
+<p>Vielleicht hilft die <a href="/">Startseite</a> oder die <a href="/suche">Suche</a>.</p>`, user, { robots: 'noindex' }))
+}
+
+const SICHTBAR = { fehlCounter: { lt: 3 }, versteckt: false, qualityScore: { gte: 20 }, quelle: { todesCounter: { lt: 3 } } } as const
+
+// Startseite: Landingpage für «Unterrichtsmaterial Gymnasium» — echter Inhalt statt Redirect
+app.get('/', async (req, res) => {
+  const user = await aktuellerUser(req)
+  const side = await baueSidebar(STANDARD_FACH, undefined, user)
+  const [materialien, quellen, faecher] = await Promise.all([
+    prisma.material.count({ where: SICHTBAR }),
+    prisma.quelle.count({ where: { todesCounter: { lt: 3 }, materialien: { some: { qualityScore: { gte: 20 }, versteckt: false, fehlCounter: { lt: 3 } } } } }),
+    prisma.fach.findMany({ orderBy: { name: 'asc' }, include: { lerngebiete: { orderBy: { nummer: 'asc' }, include: { teilgebiete: { orderBy: { code: 'asc' } } } } } }),
+  ])
+  const body = `<h1>Unterrichtsmaterial für Schweizer Gymnasien</h1>
+<p>Atlas sammelt frei zugängliches Unterrichtsmaterial von Lehrpersonen für Maturitätsschulen und ordnet es den Lernzielen des <a href="https://edudoc.ch/record/232281/files/Rahmenlehrplan-maturitatsschulen.pdf" rel="noopener">Rahmenlehrplans Maturitätsschulen (EDK 2024)</a> zu — mit Kurzzusammenfassung, Link zur Originalquelle und Bewertungen aus der Community.</p>
+<p class="meta">${materialien} Materialien aus ${quellen} Quellen · kostenlos und ohne Registrierung durchsuchbar</p>
+<form class="suche" action="/suche"><input type="search" name="q" placeholder="Volltextsuche, z.B. binärsystem arbeitsblatt"><button>Suchen</button></form>
+<h2>Fächer</h2>
+${faecher.map((f) => `<div class="karte">
+<h3><a href="/fach/${esc(f.code)}">${esc(f.name)}</a></h3>
+<p class="meta">${f.lerngebiete.map((lg) => `${lg.nummer}. ${esc(lg.name)}: ${lg.teilgebiete.map((tg) => `<a href="${tgPfad(f.code, tg.code, tg.name)}">${esc(tg.name)}</a>`).join(' · ')}`).join('<br>')}</p>
+</div>`).join('\n')}
+<p class="meta">Atlas startet mit dem Grundlagenfach Informatik, ist aber fächerneutral gebaut — weitere Fächer folgen, sobald Lehrpersonen Material melden.</p>
+<h2>So funktioniert Atlas</h2>
+<ol>
+<li><strong>Melden:</strong> Du meldest nur einen Link — deine Material-Website, ein Git-Repo oder einen Cloud-Ordner.</li>
+<li><strong>Sammeln:</strong> Atlas liest die Quelle automatisch aus und hält sie aktuell. Gespeichert werden Links, keine Kopien.</li>
+<li><strong>Einordnen:</strong> Jedes Material wird den Lernzielen des Lehrplans zugeordnet, zusammengefasst und getaggt — die Community bewertet per Upvote.</li>
+</ol>
+<p><a href="/melden">Eigene Materialien teilen</a> · <a href="/quellen">Alle Quellen ansehen</a></p>`
+  res.send(layout('Atlas – Unterrichtsmaterial für Schweizer Gymnasien', side, body, user, {
+    vollTitel: true,
+    pfad: '/',
+    beschreibung: `Frei zugängliches Unterrichtsmaterial für Schweizer Gymnasien, geordnet nach den Lernzielen des Rahmenlehrplans Maturitätsschulen (EDK 2024). ${materialien} Materialien, von Lehrpersonen geteilt und von der Community bewertet.`,
+    jsonLd: {
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: 'Atlas',
+      url: BASE_URL,
+      description: 'Unterrichtsmaterial für Schweizer Gymnasien, geordnet nach dem Rahmenlehrplan Maturitätsschulen (EDK 2024).',
+      inLanguage: 'de-CH',
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: { '@type': 'EntryPoint', urlTemplate: `${BASE_URL}/suche?q={suchbegriff}` },
+        'query-input': 'required name=suchbegriff',
+      },
+    },
+  }))
+})
+
+// robots.txt + sitemap.xml — /suche (beliebige Query-Params) und interne Pfade vom Crawlen ausnehmen
+app.get('/robots.txt', (_req, res) => {
+  res.type('text/plain').send(`User-agent: *
+Disallow: /suche
+Disallow: /melden
+Disallow: /login
+Disallow: /admin
+Disallow: /quelle/
+Disallow: /auth/
+Sitemap: ${BASE_URL}/sitemap.xml
+`)
+})
+
+app.get('/sitemap.xml', async (_req, res) => {
+  const faecher = await prisma.fach.findMany({
+    include: { lerngebiete: { include: { teilgebiete: { include: { kompetenzen: true } } } } },
+  })
+  const pfade = ['/', '/quellen']
+  for (const f of faecher) {
+    pfade.push(`/fach/${f.code}`)
+    for (const lg of f.lerngebiete)
+      for (const tg of lg.teilgebiete) {
+        pfade.push(tgPfad(f.code, tg.code, tg.name))
+        for (const ko of tg.kompetenzen) pfade.push(koPfad(f.code, ko.code, ko.text))
+      }
+  }
+  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${pfade.map((p) => `<url><loc>${esc(BASE_URL + p)}</loc></url>`).join('\n')}
+</urlset>
+`)
+})
 
 // Fach-Übersicht
 app.get('/fach/:fach', async (req, res) => {
   const user = await aktuellerUser(req)
   const fach = await prisma.fach.findUnique({ where: { code: req.params.fach } })
-  if (!fach) return res.status(404).send('Fach nicht gefunden')
+  if (!fach) return nichtGefunden(res, 'Fach', user)
   const side = await baueSidebar(fach.code, undefined, user)
   const neueste = await ladeMaterialKarten({}, user?.id ?? null, fach.code)
   const body = `<h1>${esc(fach.name)}</h1>
@@ -138,43 +224,62 @@ Links ein Teilgebiet oder eine Kompetenz wählen — oder <a href="/suche">Vollt
 <h2>Alle Materialien (${neueste.length})</h2>
 ${filterLeiste(...(await filterDaten(user?.id ?? null)), !!user)}
 ${neueste.length ? neueste.map((k) => materialKarte(k, !!user, user?.istAdmin ?? false)).join('\n') : '<p>Noch keine Materialien. <a href="/melden">Quelle melden?</a></p>'}`
-  res.send(layout(fach.name, side, body, user))
+  res.send(layout(`Unterrichtsmaterial ${fach.name} – Gymnasium`, side, body, user, {
+    pfad: `/fach/${fach.code}`,
+    beschreibung: `${neueste.length} Unterrichtsmaterialien für ${fach.name} am Gymnasium, geordnet nach dem Rahmenlehrplan Maturitätsschulen (EDK 2024). Kostenlos, mit Links zu den Originalquellen.`,
+  }))
 })
 
-// Teilgebiet: Materialien des Teilgebiets inkl. seiner Kompetenzen
+// Teilgebiet: Materialien des Teilgebiets inkl. seiner Kompetenzen.
+// URL-Param ist "1.2" oder "1.2-slug…" — Code steht vor dem ersten Bindestrich;
+// alles andere als der kanonische Slug-Pfad wird 301-umgeleitet (eine URL pro Seite).
 app.get('/fach/:fach/t/:code', async (req, res) => {
   const user = await aktuellerUser(req)
+  const code = req.params.code.split('-')[0]
   const tg = await prisma.teilgebiet.findFirst({
-    where: { code: req.params.code, lerngebiet: { fach: { code: req.params.fach } } },
-    include: { lerngebiet: true, kompetenzen: { orderBy: { code: 'asc' } } },
+    where: { code, lerngebiet: { fach: { code: req.params.fach } } },
+    include: { lerngebiet: { include: { fach: true } }, kompetenzen: { orderBy: { code: 'asc' } } },
   })
-  if (!tg) return res.status(404).send('Teilgebiet nicht gefunden')
+  if (!tg) return nichtGefunden(res, 'Teilgebiet', user)
+  const fachKurz = tg.lerngebiet.fach.name.replace(/\s*\(.*\)$/, '')
+  const kanonisch = tgPfad(req.params.fach, tg.code, tg.name)
+  if (req.path !== kanonisch) return res.redirect(301, kanonisch)
   const side = await baueSidebar(req.params.fach, `T${tg.code}`, user)
   const karten = await ladeMaterialKarten({ zuordnungen: { some: { teilgebietId: tg.id } } }, user?.id ?? null, req.params.fach)
-  const body = `<h1>${esc(tg.code)} ${esc(tg.name)}</h1>
+  const body = `<h1>${esc(tg.code)} ${esc(tg.name)} – Unterrichtsmaterial</h1>
 <p class="meta">${tg.lerngebiet.nummer}. ${esc(tg.lerngebiet.name)}</p>
-<ul class="meta">${tg.kompetenzen.map((k) => `<li>${esc(k.text)}</li>`).join('')}</ul>
+<ul class="meta">${tg.kompetenzen.map((k) => `<li><a href="${koPfad(req.params.fach, k.code, k.text)}">${esc(k.text)}</a></li>`).join('')}</ul>
 ${filterLeiste(...(await filterDaten(user?.id ?? null)), !!user)}
 ${karten.length ? karten.map((k) => materialKarte(k, !!user, user?.istAdmin ?? false)).join('\n') : '<p>Noch keine Materialien. <a href="/melden">Quelle melden?</a></p>'}`
-  res.send(layout(`${tg.code} ${tg.name}`, side, body, user))
+  res.send(layout(`Unterrichtsmaterial ${tg.name} – ${fachKurz} Gymnasium`, side, body, user, {
+    pfad: kanonisch,
+    beschreibung: `${karten.length} Unterrichtsmaterialien zu ${tg.name} (${tg.code}) für ${fachKurz} am Gymnasium — mit Zusammenfassungen und Links zu den Originalquellen.`,
+  }))
 })
 
-// Einzelne Kompetenz
+// Einzelne Kompetenz — Lernziel-Seite, die wichtigste SEO-Landingpage (siehe Teilgebiet-Route zum Slug-Schema)
 app.get('/fach/:fach/k/:code', async (req, res) => {
   const user = await aktuellerUser(req)
+  const code = req.params.code.split('-')[0]
   const ko = await prisma.kompetenz.findFirst({
-    where: { code: req.params.code, teilgebiet: { lerngebiet: { fach: { code: req.params.fach } } } },
-    include: { teilgebiet: { include: { lerngebiet: true } } },
+    where: { code, teilgebiet: { lerngebiet: { fach: { code: req.params.fach } } } },
+    include: { teilgebiet: { include: { lerngebiet: { include: { fach: true } } } } },
   })
-  if (!ko) return res.status(404).send('Kompetenz nicht gefunden')
+  if (!ko) return nichtGefunden(res, 'Lernziel', user)
+  const kanonisch = koPfad(req.params.fach, ko.code, ko.text)
+  if (req.path !== kanonisch) return res.redirect(301, kanonisch)
+  const fachKurz = ko.teilgebiet.lerngebiet.fach.name.replace(/\s*\(.*\)$/, '')
   const side = await baueSidebar(req.params.fach, `K${ko.code}`, user)
   const karten = await ladeMaterialKarten({ zuordnungen: { some: { kompetenzId: ko.id } } }, user?.id ?? null, req.params.fach)
-  const body = `<h1>${esc(ko.code)}</h1>
-<p>Die Maturandinnen und Maturanden können <strong>${esc(ko.text)}</strong>.</p>
-<p class="meta"><a href="/fach/${esc(req.params.fach)}/t/${esc(ko.teilgebiet.code)}">${esc(ko.teilgebiet.code)} ${esc(ko.teilgebiet.name)}</a> · ${ko.teilgebiet.lerngebiet.nummer}. ${esc(ko.teilgebiet.lerngebiet.name)}</p>
+  const body = `<h1>${esc(ko.code)} ${esc(grossErst(ko.text))}</h1>
+<p>Unterrichtsmaterial zum Lernziel: Die Maturandinnen und Maturanden können <strong>${esc(ko.text)}</strong>.</p>
+<p class="meta"><a href="${tgPfad(req.params.fach, ko.teilgebiet.code, ko.teilgebiet.name)}">${esc(ko.teilgebiet.code)} ${esc(ko.teilgebiet.name)}</a> · ${ko.teilgebiet.lerngebiet.nummer}. ${esc(ko.teilgebiet.lerngebiet.name)}</p>
 ${filterLeiste(...(await filterDaten(user?.id ?? null)), !!user)}
 ${karten.length ? karten.map((k) => materialKarte(k, !!user, user?.istAdmin ?? false)).join('\n') : '<p>Noch keine Materialien. <a href="/melden">Quelle melden?</a></p>'}`
-  res.send(layout(ko.code, side, body, user))
+  res.send(layout(`Unterrichtsmaterial: ${grossErst(kürze(ko.text, 60))} – ${fachKurz} Gymnasium`, side, body, user, {
+    pfad: kanonisch,
+    beschreibung: `${karten.length} Unterrichtsmaterialien zum Lernziel ${ko.code} (${fachKurz}, Gymnasium): ${kürze(grossErst(ko.text), 110).replace(/…?$/, (e) => e || '.')} Mit Zusammenfassungen, Tags und Links zu den Originalquellen.`,
+  }))
 })
 
 // Volltextsuche (FTS5) und Tag-Filter
@@ -216,7 +321,7 @@ app.get('/suche', async (req, res) => {
 <form class="suche"><input type="search" name="q" value="${esc(q)}" placeholder="Volltextsuche"><button>Suchen</button></form>
 ${tag ? `<h2>Tag: ${esc(tag)}</h2>` : q ? `<h2>Resultate für «${esc(q)}»</h2>` : ''}
 ${(q || tag) ? (karten.length ? karten.map((k) => materialKarte(k, !!user, user?.istAdmin ?? false)).join('\n') : '<p>Keine Treffer.</p>') : ''}`
-  res.send(layout('Suche', side, body, user))
+  res.send(layout('Suche', side, body, user, { robots: 'noindex,follow' }))
 })
 
 // Melden: nur mit Login (Kostenbremse) — Quelle wird sofort gecrawlt, damit man das Resultat sieht
@@ -339,7 +444,7 @@ app.get('/quelle/:id/status', async (req, res) => {
   const user = await aktuellerUser(req)
   const side = await baueSidebar(STANDARD_FACH, undefined, user)
   const quelle = await prisma.quelle.findUnique({ where: { id: Number(req.params.id) } })
-  if (!quelle) return res.status(404).send('Quelle nicht gefunden')
+  if (!quelle) return nichtGefunden(res, 'Quelle', user)
   const body = `<h1>Quelle gemeldet</h1>
 <p><code>${esc(quelle.url)}</code></p>
 ${await crawlStatusFragment(quelle.id)}`
@@ -406,7 +511,7 @@ app.get('/quellen', async (req, res) => {
   const side = await baueSidebar(STANDARD_FACH, undefined, user)
   const body = `<h1>Quellen</h1>
 ${await quellenListe(user)}`
-  res.send(layout('Quellen', side, body, user))
+  res.send(layout('Quellen', side, body, user, { pfad: '/quellen', beschreibung: 'Alle Quellen, aus denen Atlas Unterrichtsmaterial für Schweizer Gymnasien sammelt — Websites, Git-Repos und Cloud-Ordner von Lehrpersonen.' }))
 })
 
 // Vote (HTMX): gleicher Pfeil nochmal = zurückziehen, anderer Pfeil = wechseln
@@ -691,6 +796,11 @@ app.post('/profil/nickname', async (req, res) => {
 app.post('/logout', (_req, res) => {
   res.clearCookie('uid')
   res.redirect('/')
+})
+
+// Unbekannte Pfade: HTML-404 statt Express-Default
+app.use(async (req, res) => {
+  nichtGefunden(res, 'Seite', await aktuellerUser(req))
 })
 
 const PORT = Number(process.env.PORT ?? 3000)
