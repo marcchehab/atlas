@@ -288,6 +288,7 @@ app.post('/melden', async (req, res) => {
   if (existiert) {
     return res.send(layout('Schon vorhanden', side, `<p>Diese Quelle ist schon gemeldet${existiert.titel ? `: <strong>${esc(existiert.titel)}</strong>` : ''}.</p><p><a href="/">Zur Übersicht</a></p>`, user))
   }
+  await prisma.quellenSperre.deleteMany({ where: { url } }) // manuelles Melden hebt die Sync-Sperre auf
   const quelle = await prisma.quelle.create({
     data: { url, typ: erkenneTyp(url), fach: String(req.body.fach || '') || null, melderId: user.id },
   })
@@ -346,18 +347,32 @@ app.get('/quelle/:id/status/fragment', async (req, res) => {
 })
 
 async function quellenListe(user: Nutzer | null): Promise<string> {
-  const quellen = await prisma.quelle.findMany({ orderBy: { createdAt: 'desc' }, include: { melder: true, _count: { select: { materialien: true } } } })
-  const gruppen = new Map<string, typeof quellen>()
-  for (const q of quellen) {
-    let key: string
-    try {
-      const u = new URL(q.url)
-      const host = u.hostname.replace(/^www\./, '')
-      key = ['github.com', 'gitlab.com', 'codeberg.org', 'eduskript.org'].includes(host) ? `${host}/${u.pathname.split('/')[1] ?? ''}` : host
-    } catch { key = q.url }
-    if (!gruppen.has(key)) gruppen.set(key, [])
-    gruppen.get(key)!.push(q)
+  const quellen = await prisma.quelle.findMany({
+    orderBy: { createdAt: 'desc' },
+    include: {
+      melder: true,
+      _count: { select: { materialien: { where: { qualityScore: { gte: 20 }, versteckt: false, fehlCounter: { lt: 3 } } } } },
+    },
+  })
+  const gruppiere = (liste: typeof quellen) => {
+    const gruppen = new Map<string, typeof quellen>()
+    for (const q of liste) {
+      let key: string
+      try {
+        const u = new URL(q.url)
+        const host = u.hostname.replace(/^www\./, '')
+        key = ['github.com', 'gitlab.com', 'codeberg.org', 'eduskript.org'].includes(host) ? `${host}/${u.pathname.split('/')[1] ?? ''}` : host
+      } catch { key = q.url }
+      if (!gruppen.has(key)) gruppen.set(key, [])
+      gruppen.get(key)!.push(q)
+    }
+    return gruppen
   }
+  // Quellen ohne sichtbare Materialien (leer/abgelehnt/tot) wandern in einen zugeklappten Bereich am Schluss
+  const istAktiv = (q: (typeof quellen)[0]) => q._count.materialien > 0 && q.todesCounter < 3
+  const gruppen = gruppiere(quellen.filter(istAktiv))
+  const leer = quellen.filter((q) => !istAktiv(q))
+  const leerGruppen = gruppiere(leer)
   const muell = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>'
   const zeile = (q: (typeof quellen)[0]) =>
     `<tr><td><a href="${esc(q.url)}" rel="noopener">${esc(kürze(q.titel ?? q.url, 60))}</a></td><td>${esc(q.typ)}</td><td>${q.qualityScore ?? '–'}</td><td>${q.todesCounter}</td><td>${q._count.materialien}</td><td>${esc(q.melder.nickname)}</td>${
@@ -365,17 +380,20 @@ async function quellenListe(user: Nutzer | null): Promise<string> {
         ? `<td><form hx-post="/quelle/${q.id}/loeschen" hx-target="#quellen-liste" hx-swap="outerHTML" hx-confirm="Quelle samt ${q._count.materialien} Materialien und Votes löschen?"><button class="btn-loeschen" title="Quelle löschen">${muell}</button></form></td>`
         : ''
     }</tr>`
-  return `<div id="quellen-liste">
-${[...gruppen.entries()]
-  .map(([key, qs]) => {
+  const gruppeHtml = ([key, qs]: [string, typeof quellen]) => {
     const mats = qs.reduce((s, q) => s + q._count.materialien, 0)
     return `<details ${qs.length === 1 ? '' : 'open'} style="margin-bottom:.6rem">
 <summary style="cursor:pointer;padding:.3rem 0"><strong>${esc(key)}</strong> <span class="meta">${qs.length} ${qs.length === 1 ? 'Quelle' : 'Quellen'} · ${mats} Materialien</span></summary>
 <table><tr><th>URL</th><th>Typ</th><th>Score</th><th>☠</th><th>Materialien</th><th>Melder:in</th>${user ? '<th></th>' : ''}</tr>
 ${qs.map(zeile).join('\n')}</table>
 </details>`
-  })
-  .join('\n')}
+  }
+  return `<div id="quellen-liste">
+${[...gruppen.entries()].map(gruppeHtml).join('\n')}
+${leer.length ? `<details style="margin-top:1.2rem">
+<summary style="cursor:pointer;padding:.3rem 0" class="meta">Ausgeblendete Quellen ohne Inhalte (${leer.length})</summary>
+${[...leerGruppen.entries()].map(gruppeHtml).join('\n')}
+</details>` : ''}
 </div>`
 }
 
@@ -417,6 +435,7 @@ app.post('/quelle/:id/loeschen', async (req, res) => {
   if (!quelle) return res.status(404).send('Quelle nicht gefunden')
   if (!user.istAdmin && quelle.melderId !== user.id) return res.status(403).send('Nur eigene Quellen.')
   await prisma.quelle.delete({ where: { id } })
+  await prisma.quellenSperre.upsert({ where: { url: quelle.url }, create: { url: quelle.url }, update: {} }) // Sync soll sie nicht wiederbeleben
   await fs.rm(path.join(process.cwd(), 'data', 'git', String(id)), { recursive: true, force: true })
   if (req.headers['hx-request']) return res.send(await quellenListe(user))
   res.redirect('/quellen')

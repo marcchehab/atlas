@@ -28,6 +28,7 @@ export async function syncEduskriptVerzeichnis(): Promise<string> {
     let url: string
     try { url = normalizeUrl(site.url) } catch { continue }
     verzeichnisUrls.add(url)
+    if (await prisma.quellenSperre.findUnique({ where: { url } })) continue // manuell gelöscht — nicht wiederbeleben
     const vorhanden = await prisma.quelle.findUnique({ where: { url } })
     if (vorhanden) {
       // Zurück im Verzeichnis → reaktivieren (nur System-Quellen anfassen)

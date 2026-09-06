@@ -143,3 +143,10 @@ model TagVote {
 
   @@id([userId, tagId])
 }
+
+// Gelöschte Quellen: der Verzeichnis-Sync soll sie nicht wieder anlegen.
+// Manuelles Neu-Melden hebt die Sperre auf.
+model QuellenSperre {
+  url      String   @id
+  erstellt DateTime @default(now())
+}
