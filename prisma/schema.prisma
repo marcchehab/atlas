@@ -90,6 +90,11 @@ model Material {
   fehlCounter    Int                @default(0) // Crawls in Folge, in denen die URL fehlte; >=3 = ausgeblendet
   versteckt      Boolean            @default(false) // von Admin ausgeblendet
   contentHash    String?
+  // HTTP-Caching fürs nächtliche Re-Crawling: 304 via If-None-Match/If-Modified-Since,
+  // bzw. Seite ganz überspringen, wenn die Sitemap dasselbe lastmod meldet wie zuletzt.
+  httpEtag       String?
+  httpLastMod    String?
+  sitemapLastmod String?
   createdAt      DateTime           @default(now())
   zuordnungen    MaterialZuordnung[]
   tags           MaterialTag[]

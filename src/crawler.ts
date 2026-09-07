@@ -14,9 +14,9 @@ const MAX_SEITEN = Number(process.env.MAX_SEITEN) || 200 // Deckel pro Quelle un
 
 const hash = (s: string | Buffer) => crypto.createHash('sha256').update(s).digest('hex')
 
-function fetchSeite(url: string): Promise<Response> {
+function fetchSeite(url: string, extraHeaders: Record<string, string> = {}): Promise<Response> {
   return fetch(url, {
-    headers: { 'User-Agent': 'AtlasBot/0.1 (+https://atlas.eduskript.org)' },
+    headers: { 'User-Agent': 'AtlasBot/0.1 (+https://atlas.eduskript.org)', ...extraHeaders },
     redirect: 'follow',
     signal: AbortSignal.timeout(20000),
   })
@@ -186,7 +186,9 @@ function sammleUrls(quelleUrl: string, html: string): string[] {
   return [...urls]
 }
 
-async function ladeSitemap(origin: string): Promise<string[] | null> {
+// Sitemap-Einträge mit lastmod (sofern die Sitemap eines führt) — Basis fürs
+// Überspringen unveränderter Seiten ohne jeden Download.
+async function ladeSitemap(origin: string): Promise<{ loc: string; lastmod?: string }[] | null> {
   try {
     const res = await fetchSeite(`${origin}/sitemap.xml`)
     if (!res.ok) return null
@@ -199,8 +201,16 @@ async function ladeSitemap(origin: string): Promise<string[] | null> {
       )
       xml = teile.join('\n')
     }
-    const urls = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1].trim())
-    return urls.length ? urls : null
+    const eintraege = [...xml.matchAll(/<url>([\s\S]*?)<\/url>/g)].flatMap((m) => {
+      const loc = m[1].match(/<loc>([^<]+)<\/loc>/)?.[1]?.trim()
+      if (!loc) return []
+      return [{ loc, lastmod: m[1].match(/<lastmod>([^<]+)<\/lastmod>/)?.[1]?.trim() }]
+    })
+    // Sitemaps ohne <url>-Blöcke (nur <loc>-Liste)
+    if (!eintraege.length) {
+      return [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => ({ loc: m[1].trim() }))
+    }
+    return eintraege
   } catch {
     return null
   }
@@ -232,13 +242,15 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   }
   let sitemap = await ladeSitemap(origin)
   // Origin-Sitemap ohne Treffer unterhalb des Pfad-Präfixes (z.B. eduskript.org/evh) → spidern
-  if (sitemap && !sitemap.some(passt)) sitemap = null
+  if (sitemap && !sitemap.some((e) => passt(e.loc))) sitemap = null
+  const lastmods = new Map((sitemap ?? []).filter((e) => e.lastmod).map((e) => [e.loc, e.lastmod!]))
   // Ohne Sitemap: rekursiv spidern (BFS) — Links jeder besuchten Seite kommen in die Queue
-  const queue = (sitemap ?? [quelle.url]).filter(passt)
+  const queue = (sitemap?.map((e) => e.loc) ?? [quelle.url]).filter(passt)
   const geplant = new Set(queue)
   let besucht = 0
 
   const stat = { neu: 0, aktualisiert: 0, unverändert: 0, abgelehnt: 0, duplikat: 0, fehler: 0 }
+  let ohneDownload = 0 // via Sitemap-lastmod oder HTTP 304 übersprungen (zählen auch als unverändert)
   const gesehen = new Set<string>()
   // Deckel zählt AI-Verarbeitungen (Kosten); Besuche sind billig und haben nur ein Sicherheitslimit
   const verarbeitet = () => stat.neu + stat.aktualisiert + stat.abgelehnt
@@ -251,8 +263,29 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
     const url = queue.shift()!
     besucht++
     try {
+      // Bekanntes Material: Sitemap-lastmod unverändert → gar kein Download;
+      // sonst konditionaler Request (If-None-Match/If-Modified-Since) → 304 spart den Body.
+      const bekannt = force ? null : await prisma.material.findUnique({ where: { url } })
+      const smLastmod = lastmods.get(url)
+      if (bekannt && smLastmod && bekannt.sitemapLastmod === smLastmod) {
+        gesehen.add(url)
+        stat.unverändert++
+        ohneDownload++
+        continue
+      }
       if (besucht > 1) await new Promise((r) => setTimeout(r, PAUSE_MS))
-      let res = url === quelle.url ? null : await fetchSeite(url)
+      const cond: Record<string, string> = {}
+      if (bekannt?.httpEtag) cond['If-None-Match'] = bekannt.httpEtag
+      if (bekannt?.httpLastMod) cond['If-Modified-Since'] = bekannt.httpLastMod
+      let res = url === quelle.url ? null : await fetchSeite(url, cond)
+      if (res?.status === 304) {
+        gesehen.add(url)
+        stat.unverändert++
+        ohneDownload++
+        // Inhalt unverändert laut Server — gemerktes lastmod nachziehen
+        if (smLastmod) await prisma.material.update({ where: { id: bekannt!.id }, data: { sitemapLastmod: smLastmod } })
+        continue
+      }
       let effektiveUrl = url
       if (res?.status === 429) {
         rateLimits++
@@ -298,9 +331,20 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
         try { text = await extract(html) } catch { text = stripTags(html) }
       }
       gesehen.add(effektiveUrl)
+      // Caching-Marker fürs nächste Mal (Startseite kommt aus startRes)
+      const kopf = res ?? startRes
+      const cacheDaten = {
+        httpEtag: kopf.headers.get('etag'),
+        httpLastMod: kopf.headers.get('last-modified'),
+        sitemapLastmod: smLastmod ?? null,
+      }
       const h = hash(text)
       const vorhanden = await prisma.material.findUnique({ where: { url: effektiveUrl } })
-      if (vorhanden && vorhanden.contentHash === h && !force) { stat.unverändert++; continue }
+      if (vorhanden && vorhanden.contentHash === h && !force) {
+        stat.unverändert++
+        await prisma.material.update({ where: { id: vorhanden.id }, data: cacheDaten })
+        continue
+      }
       const dupe = await prisma.material.findFirst({ where: { quelleId: quelle.id, contentHash: h, url: { not: effektiveUrl } } })
       if (dupe) {
         if (vorhanden) await prisma.material.delete({ where: { url: effektiveUrl } })
@@ -308,6 +352,7 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
         continue
       }
       stat[await verarbeiteMaterial(quelle.id, effektiveUrl, text, h, ctx, force, true, format)]++
+      await prisma.material.updateMany({ where: { url: effektiveUrl }, data: cacheDaten })
     } catch (e) {
       stat.fehler++
       if (stat.fehler <= 5) console.error(`Crawl-Fehler ${url}: ${(e as Error).message}`)
@@ -315,7 +360,7 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   }
   const gedeckelt = queue.length > 0 || abgebrochen
   const aufraeumen = await raeumeAuf(quelle.id, gesehen, gedeckelt)
-  return `${besucht} Seiten${gedeckelt ? ` (${abgebrochen ? 'Rate-Limit-Abbruch' : `gedeckelt, ${MAX_SEITEN}/Nacht`}, ${queue.length} offen)` : ''} via ${sitemap ? 'Sitemap' : 'Link-Spider'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
+  return `${besucht} Seiten${gedeckelt ? ` (${abgebrochen ? 'Rate-Limit-Abbruch' : `gedeckelt, ${MAX_SEITEN}/Nacht`}, ${queue.length} offen)` : ''} via ${sitemap ? 'Sitemap' : 'Link-Spider'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert (davon ${ohneDownload} ohne Download), ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
 }
 
 // ---------- Buch-SPA-Connector (mygymer-Stil) ----------
