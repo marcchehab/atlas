@@ -7,7 +7,7 @@ import { crawlQuelle } from './crawler.js'
 import * as auth from './auth.js'
 import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
-import { layout, esc, kürze, sidebar, materialKarte, voteButtons, loginSeite, filterLeiste, tagVorschlagChip, quellenKey, MaterialKarte, TagVorschlag, BASE_URL, tgPfad, koPfad, grossErst } from './views.js'
+import { layout, esc, kürze, sidebar, materialKarte, voteButtons, loginSeite, filterLeiste, tagVorschlagChip, quellenKey, MaterialKarte, TagVorschlag, FilterChip, BASE_URL, tgPfad, koPfad, grossErst } from './views.js'
 
 const app = express()
 const SECRET = process.env.SESSION_SECRET ?? 'dev'
@@ -98,7 +98,66 @@ async function ladeMaterialKarten(where: object, userId: number | null, fachCode
     .sort((a, b) => b.score - a.score || b.aiScore - a.aiScore)
 }
 
-async function filterDaten(userId: number | null): Promise<[string[], string[], string[], TagVorschlag[]]> {
+const SEITE = 50 // Karten pro Nachlade-Schritt (Endlos-Scroll)
+
+interface ListenFilter {
+  quellen: string[]
+  tags: string[]
+  format: string[]
+}
+
+function leseFilter(req: express.Request): ListenFilter {
+  const arr = (v: unknown) => (Array.isArray(v) ? v.map(String) : v != null ? [String(v)] : [])
+  return { quellen: arr(req.query.quelle), tags: arr(req.query.tag), format: arr(req.query.fmt) }
+}
+
+interface LeichtesMaterial {
+  id: number
+  quelle: string
+  tags: string[]
+  format: string
+  score: number
+  aiScore: number
+}
+
+// Schlanke Liste aller sichtbaren Materialien eines Kontexts — Grundlage für Chip-Zahlen,
+// Sortierung und Slice. Die teuren Includes (Zuordnungen, Zusammenfassung, meinVote)
+// lädt erst ladeMaterialKarten für die 50 Karten des Batches.
+async function ladeLeicht(where: object): Promise<LeichtesMaterial[]> {
+  const mats = await prisma.material.findMany({
+    where: { ...where, ...SICHTBAR },
+    select: {
+      id: true,
+      url: true,
+      format: true,
+      qualityScore: true,
+      tags: { select: { tag: { select: { name: true } } } },
+      upvotes: { select: { wert: true } },
+    },
+  })
+  return mats.map((m) => ({
+    id: m.id,
+    quelle: quellenKey(m.url),
+    tags: m.tags.map((t) => t.tag.name),
+    format: m.format ?? '',
+    score: m.upvotes.reduce((s, u) => s + u.wert, 0),
+    aiScore: m.qualityScore ?? 0,
+  }))
+}
+
+// Passt m zu den Filtern? `ausser` blendet eine Kategorie aus — für die Chip-Zahlen
+// (Zahl eines Chips = Treffer unter den Filtern der jeweils anderen Kategorien).
+function passtAusser(m: LeichtesMaterial, f: ListenFilter, ausser: keyof ListenFilter | null): boolean {
+  return (
+    (ausser === 'quellen' || !f.quellen.length || f.quellen.includes(m.quelle)) &&
+    (ausser === 'tags' || !f.tags.length || m.tags.some((x) => f.tags.includes(x))) &&
+    (ausser === 'format' || !f.format.length || f.format.includes(m.format))
+  )
+}
+
+// Chip-Listen sind global (alle Quellen/Tags/Formate wie bisher); die Zahlen zählen
+// den aktuellen Kontext (`leicht`) unter dem Filterstand `f`.
+async function filterDaten(userId: number | null, leicht: LeichtesMaterial[], f: ListenFilter): Promise<[FilterChip[], FilterChip[], FilterChip[], TagVorschlag[]]> {
   // Nur Quellen mit sichtbaren Materialien — leere/tote gehören nicht in die Filterleiste
   const quellen = await prisma.quelle.findMany({
     where: { todesCounter: { lt: 3 }, materialien: { some: { qualityScore: { gte: 20 }, versteckt: false, fehlCounter: { lt: 3 } } } },
@@ -111,15 +170,56 @@ async function filterDaten(userId: number | null): Promise<[string[], string[], 
     orderBy: [{ name: 'asc' }],
     include: { votes: true },
   })
+  const chip = (kat: keyof ListenFilter, wert: string, hat: (m: LeichtesMaterial) => boolean): FilterChip => ({
+    wert,
+    aktiv: f[kat].includes(wert),
+    anzahl: leicht.filter((m) => hat(m) && passtAusser(m, f, kat)).length,
+  })
   return [
-    [...new Set(quellen.map((q) => quellenKey(q.url)))].sort(),
-    tags.map((t) => t.name),
-    formate.map((f) => f.format!).sort(),
+    [...new Set(quellen.map((q) => quellenKey(q.url)))].sort().map((w) => chip('quellen', w, (m) => m.quelle === w)),
+    tags.map((t) => chip('tags', t.name, (m) => m.tags.includes(t.name))),
+    formate.map((x) => x.format!).sort().map((w) => chip('format', w, (m) => m.format === w)),
     vorschlaege
       .map((v) => ({ id: v.id, name: v.name, votes: v.votes.length, meinVote: userId != null && v.votes.some((x) => x.userId === userId) }))
       .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name))
       .slice(0, 5), // mehr Vorschläge überfordern die Leiste — Rest wartet im Admin
   ]
+}
+
+// Ein Batch der Materialliste: 50 Karten + Sentinel, das beim Insichtscrollen den
+// nächsten Batch nachlädt; bei offset 0 zusätzlich die Filterleiste zum Filterstand.
+async function listeFragment(where: object, basisUrl: string, req: express.Request, user: Nutzer | null, fachCode: string): Promise<string> {
+  const f = leseFilter(req)
+  const offset = Math.max(0, Number(req.query.offset) || 0)
+  const leicht = await ladeLeicht(where)
+  const gefiltert = leicht
+    .filter((m) => passtAusser(m, f, null))
+    .sort((a, b) => b.score - a.score || b.aiScore - a.aiScore)
+  const slice = gefiltert.slice(offset, offset + SEITE)
+  const karten = await ladeMaterialKarten({ id: { in: slice.map((s) => s.id) } }, user?.id ?? null, fachCode)
+  const nachId = new Map(karten.map((k) => [k.id, k]))
+  const kartenHtml = slice
+    .map((s) => nachId.get(s.id))
+    .filter((k): k is MaterialKarte => !!k)
+    .map((k) => materialKarte(k, !!user, user?.istAdmin ?? false))
+    .join('\n')
+  let sentinel = ''
+  if (offset + SEITE < gefiltert.length) {
+    const qs = new URLSearchParams()
+    f.quellen.forEach((v) => qs.append('quelle', v))
+    f.tags.forEach((v) => qs.append('tag', v))
+    f.format.forEach((v) => qs.append('fmt', v))
+    qs.set('offset', String(offset + SEITE))
+    sentinel = `<div class="sentinel" hx-get="${esc(basisUrl + (basisUrl.includes('?') ? '&' : '?') + qs.toString())}" hx-trigger="revealed" hx-swap="outerHTML"></div>`
+  }
+  if (offset > 0) return kartenHtml + sentinel
+  const leiste = filterLeiste(...(await filterDaten(user?.id ?? null, leicht, f)), !!user)
+  const inhalt = gefiltert.length
+    ? kartenHtml
+    : leicht.length
+      ? '<p>Keine Treffer mit diesen Filtern.</p>'
+      : '<p>Noch keine Materialien. <a href="/melden">Quelle melden?</a></p>'
+  return leiste + inhalt + sentinel
 }
 
 // HTML-404 mit Layout statt Plaintext — kein toter Endpunkt für Besucher:innen und Crawler
@@ -215,18 +315,45 @@ app.get('/fach/:fach', async (req, res) => {
   const fach = await prisma.fach.findUnique({ where: { code: req.params.fach } })
   if (!fach) return nichtGefunden(res, 'Fach', user)
   const side = await baueSidebar(fach.code, undefined, user)
-  const neueste = await ladeMaterialKarten({}, user?.id ?? null, fach.code)
+  const basis = `/fach/${fach.code}/liste`
+  const [anzahl, liste] = await Promise.all([
+    prisma.material.count({ where: SICHTBAR }),
+    listeFragment({}, basis, req, user, fach.code),
+  ])
   const body = `<h1>${esc(fach.name)}</h1>
 <p>Materialien geordnet nach dem <a href="${esc(fach.lehrplanUrl ?? '#')}" rel="noopener">Rahmenlehrplan Maturitätsschulen (EDK 2024)</a>.
 Links ein Teilgebiet oder eine Kompetenz wählen — oder <a href="/suche">Volltextsuche</a>.</p>
 <form class="suche" action="/suche"><input type="search" name="q" placeholder="Volltextsuche, z.B. binärsystem arbeitsblatt"><button>Suchen</button></form>
-<h2>Alle Materialien (${neueste.length})</h2>
-${filterLeiste(...(await filterDaten(user?.id ?? null)), !!user)}
-${neueste.length ? neueste.map((k) => materialKarte(k, !!user, user?.istAdmin ?? false)).join('\n') : '<p>Noch keine Materialien. <a href="/melden">Quelle melden?</a></p>'}`
+<h2>Alle Materialien (${anzahl})</h2>
+<div id="materialliste" data-liste="${esc(basis)}">${liste}</div>`
   res.send(layout(`Unterrichtsmaterial ${fach.name} – Gymnasium`, side, body, user, {
     pfad: `/fach/${fach.code}`,
-    beschreibung: `${neueste.length} Unterrichtsmaterialien für ${fach.name} am Gymnasium, geordnet nach dem Rahmenlehrplan Maturitätsschulen (EDK 2024). Kostenlos, mit Links zu den Originalquellen.`,
+    beschreibung: `${anzahl} Unterrichtsmaterialien für ${fach.name} am Gymnasium, geordnet nach dem Rahmenlehrplan Maturitätsschulen (EDK 2024). Kostenlos, mit Links zu den Originalquellen.`,
   }))
+})
+
+// HTMX-Fragment: gefilterte Materialliste in 50er-Batches (Endlos-Scroll).
+// Kontext optional per ?t= (Teilgebiet-Code) oder ?k= (Kompetenz-Code).
+app.get('/fach/:fach/liste', async (req, res) => {
+  const user = await aktuellerUser(req)
+  const fach = await prisma.fach.findUnique({ where: { code: req.params.fach } })
+  if (!fach) return res.status(404).send('Fach nicht gefunden')
+  const t = String(req.query.t ?? '')
+  const k = String(req.query.k ?? '')
+  let where: object = {}
+  let kontext = ''
+  if (k) {
+    const ko = await prisma.kompetenz.findFirst({ where: { code: k, teilgebiet: { lerngebiet: { fach: { code: fach.code } } } } })
+    if (!ko) return res.status(404).send('Lernziel nicht gefunden')
+    where = { zuordnungen: { some: { kompetenzId: ko.id } } }
+    kontext = `?k=${encodeURIComponent(k)}`
+  } else if (t) {
+    const tg = await prisma.teilgebiet.findFirst({ where: { code: t, lerngebiet: { fach: { code: fach.code } } } })
+    if (!tg) return res.status(404).send('Teilgebiet nicht gefunden')
+    where = { zuordnungen: { some: { teilgebietId: tg.id } } }
+    kontext = `?t=${encodeURIComponent(t)}`
+  }
+  res.send(await listeFragment(where, `/fach/${fach.code}/liste${kontext}`, req, user, fach.code))
 })
 
 // Teilgebiet: Materialien des Teilgebiets inkl. seiner Kompetenzen.
@@ -244,15 +371,19 @@ app.get('/fach/:fach/t/:code', async (req, res) => {
   const kanonisch = tgPfad(req.params.fach, tg.code, tg.name)
   if (req.path !== kanonisch) return res.redirect(301, kanonisch)
   const side = await baueSidebar(req.params.fach, `T${tg.code}`, user)
-  const karten = await ladeMaterialKarten({ zuordnungen: { some: { teilgebietId: tg.id } } }, user?.id ?? null, req.params.fach)
+  const where = { zuordnungen: { some: { teilgebietId: tg.id } } }
+  const basis = `/fach/${req.params.fach}/liste?t=${encodeURIComponent(tg.code)}`
+  const [anzahl, liste] = await Promise.all([
+    prisma.material.count({ where: { ...where, ...SICHTBAR } }),
+    listeFragment(where, basis, req, user, req.params.fach),
+  ])
   const body = `<h1>${esc(tg.code)} ${esc(tg.name)} – Unterrichtsmaterial</h1>
 <p class="meta">${tg.lerngebiet.nummer}. ${esc(tg.lerngebiet.name)}</p>
 <ul class="meta">${tg.kompetenzen.map((k) => `<li><a href="${koPfad(req.params.fach, k.code, k.text)}">${esc(k.text)}</a></li>`).join('')}</ul>
-${filterLeiste(...(await filterDaten(user?.id ?? null)), !!user)}
-${karten.length ? karten.map((k) => materialKarte(k, !!user, user?.istAdmin ?? false)).join('\n') : '<p>Noch keine Materialien. <a href="/melden">Quelle melden?</a></p>'}`
+<div id="materialliste" data-liste="${esc(basis)}">${liste}</div>`
   res.send(layout(`Unterrichtsmaterial ${tg.name} – ${fachKurz} Gymnasium`, side, body, user, {
     pfad: kanonisch,
-    beschreibung: `${karten.length} Unterrichtsmaterialien zu ${tg.name} (${tg.code}) für ${fachKurz} am Gymnasium — mit Zusammenfassungen und Links zu den Originalquellen.`,
+    beschreibung: `${anzahl} Unterrichtsmaterialien zu ${tg.name} (${tg.code}) für ${fachKurz} am Gymnasium — mit Zusammenfassungen und Links zu den Originalquellen.`,
   }))
 })
 
@@ -269,15 +400,19 @@ app.get('/fach/:fach/k/:code', async (req, res) => {
   if (req.path !== kanonisch) return res.redirect(301, kanonisch)
   const fachKurz = ko.teilgebiet.lerngebiet.fach.name.replace(/\s*\(.*\)$/, '')
   const side = await baueSidebar(req.params.fach, `K${ko.code}`, user)
-  const karten = await ladeMaterialKarten({ zuordnungen: { some: { kompetenzId: ko.id } } }, user?.id ?? null, req.params.fach)
+  const where = { zuordnungen: { some: { kompetenzId: ko.id } } }
+  const basis = `/fach/${req.params.fach}/liste?k=${encodeURIComponent(ko.code)}`
+  const [anzahl, liste] = await Promise.all([
+    prisma.material.count({ where: { ...where, ...SICHTBAR } }),
+    listeFragment(where, basis, req, user, req.params.fach),
+  ])
   const body = `<h1>${esc(ko.code)} ${esc(grossErst(ko.text))}</h1>
 <p>Unterrichtsmaterial zum Lernziel: Die Maturandinnen und Maturanden können <strong>${esc(ko.text)}</strong>.</p>
 <p class="meta"><a href="${tgPfad(req.params.fach, ko.teilgebiet.code, ko.teilgebiet.name)}">${esc(ko.teilgebiet.code)} ${esc(ko.teilgebiet.name)}</a> · ${ko.teilgebiet.lerngebiet.nummer}. ${esc(ko.teilgebiet.lerngebiet.name)}</p>
-${filterLeiste(...(await filterDaten(user?.id ?? null)), !!user)}
-${karten.length ? karten.map((k) => materialKarte(k, !!user, user?.istAdmin ?? false)).join('\n') : '<p>Noch keine Materialien. <a href="/melden">Quelle melden?</a></p>'}`
+<div id="materialliste" data-liste="${esc(basis)}">${liste}</div>`
   res.send(layout(`Unterrichtsmaterial: ${grossErst(kürze(ko.text, 60))} – ${fachKurz} Gymnasium`, side, body, user, {
     pfad: kanonisch,
-    beschreibung: `${karten.length} Unterrichtsmaterialien zum Lernziel ${ko.code} (${fachKurz}, Gymnasium): ${kürze(grossErst(ko.text), 110).replace(/…?$/, (e) => e || '.')} Mit Zusammenfassungen, Tags und Links zu den Originalquellen.`,
+    beschreibung: `${anzahl} Unterrichtsmaterialien zum Lernziel ${ko.code} (${fachKurz}, Gymnasium): ${kürze(grossErst(ko.text), 110).replace(/…?$/, (e) => e || '.')} Mit Zusammenfassungen, Tags und Links zu den Originalquellen.`,
   }))
 })
 
@@ -292,7 +427,8 @@ app.get('/suche', async (req, res) => {
   } else if (q) {
     // Suchwörter, die auf eine Quelle passen ("oinf.ch simulation"), werden zum Quellen-Filter;
     // der Rest geht in die FTS5-Volltextsuche.
-    const [gruppen] = await filterDaten(null)
+    const quellRows = await prisma.quelle.findMany({ where: { todesCounter: { lt: 3 } }, select: { url: true } })
+    const gruppen = [...new Set(quellRows.map((x) => quellenKey(x.url)))]
     const quellTreffer: string[] = []
     const textWoerter: string[] = []
     for (const wort of q.split(/\s+/)) {

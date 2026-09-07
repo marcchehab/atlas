@@ -90,10 +90,11 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
     localStorage.setItem('fontsize', f)
     document.documentElement.style.fontSize = f + '%'
   }
-  // Filter (Quellen/Tags/Format): persistiert in localStorage, wirkt clientseitig auf die Karten.
-  // Kopfzeile = Tabs; die Chip-Zeile darunter zeigt die gewählte Kategorie.
+  // Filter (Quellen/Tags/Format): Auswahl liegt in localStorage (überlebt Navigation) und
+  // spiegelt sich in der URL (bookmarkbar). Gefiltert wird serverseitig — die Liste kommt
+  // als HTMX-Fragment in #materialliste, Chips samt Zahlen rendert der Server.
   function fltr(k) { try { return JSON.parse(localStorage.getItem('f-' + k)) || [] } catch { return [] } }
-  function fltrSet(k, a) { localStorage.setItem('f-' + k, JSON.stringify(a)); wendeFilterAn() }
+  function fltrSet(k, a) { localStorage.setItem('f-' + k, JSON.stringify(a)); ladeListe() }
   function fltrToggle(k, v) { const a = fltr(k); fltrSet(k, a.includes(v) ? a.filter((x) => x !== v) : [...a, v]) }
   function quelleWaehlen(v) { const a = fltr('quellen'); fltrSet('quellen', a.length === 1 && a[0] === v ? [] : [v]) }
   function fkatWaehlen(k) {
@@ -105,33 +106,38 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
     document.querySelectorAll('.fchips').forEach((el) => { el.style.display = el.dataset.k === k ? 'flex' : 'none' })
     document.querySelectorAll('.fkat').forEach((el) => el.classList.toggle('offen', el.dataset.k === k))
   }
-  function wendeFilterAn() {
-    const f = { quellen: fltr('quellen'), tags: fltr('tags'), format: fltr('format') }
-    const karten = [...document.querySelectorAll('.karte[data-quelle]')].map((el) => ({
-      el,
-      quellen: el.dataset.quelle,
-      tags: (el.dataset.tags || '').split(' ').filter(Boolean),
-      format: el.dataset.format || '',
-    }))
-    const passt = (k, kat) =>
-      kat === 'quellen' ? (!f.quellen.length || f.quellen.includes(k.quellen))
-      : kat === 'tags' ? (!f.tags.length || k.tags.some((x) => f.tags.includes(x)))
-      : (!f.format.length || f.format.includes(k.format))
-    karten.forEach((k) => { k.el.style.display = passt(k, 'quellen') && passt(k, 'tags') && passt(k, 'format') ? '' : 'none' })
-    // Chip-Zahlen: wie viele Karten dieser Chip (unter den Filtern der anderen Kategorien) zeigen würde
-    document.querySelectorAll('.qchip[data-fk]').forEach((c) => {
-      const kat = c.dataset.fk, v = c.dataset.q
-      const hat = (k) => (kat === 'quellen' ? k.quellen === v : kat === 'tags' ? k.tags.includes(v) : k.format === v)
-      const andere = ['quellen', 'tags', 'format'].filter((x) => x !== kat)
-      const n = karten.filter((k) => hat(k) && andere.every((x) => passt(k, x))).length
-      const z = c.querySelector('.chipzahl')
-      if (z) z.textContent = n
-      c.classList.toggle('aktiv', f[kat].includes(v))
-    })
-    document.querySelectorAll('.fkat').forEach((el) => el.classList.toggle('mit-punkt', fltr(el.dataset.k).length > 0))
+  function filterQuery() {
+    const p = new URLSearchParams()
+    fltr('quellen').forEach((v) => p.append('quelle', v))
+    fltr('tags').forEach((v) => p.append('tag', v))
+    fltr('format').forEach((v) => p.append('fmt', v))
+    return p.toString()
   }
-  function filterReset() { for (const k of ['quellen', 'tags', 'format']) localStorage.setItem('f-' + k, '[]'); wendeFilterAn() }
-  document.addEventListener('DOMContentLoaded', () => { zeigeFilterTab(); wendeFilterAn() })
+  function ladeListe() {
+    const el = document.getElementById('materialliste')
+    const q = filterQuery()
+    if (!el) { // Seite ohne Liste (z.B. Suche): zum Fach springen, Filter reist per localStorage mit
+      const fach = document.querySelector('aside select')
+      if (fach) location.href = '/fach/' + fach.value
+      return
+    }
+    history.replaceState(null, '', location.pathname + (q ? '?' + q : ''))
+    htmx.ajax('GET', el.dataset.liste + (q ? (el.dataset.liste.includes('?') ? '&' : '?') + q : ''), { target: '#materialliste', swap: 'innerHTML' })
+  }
+  function filterReset() { for (const k of ['quellen', 'tags', 'format']) localStorage.setItem('f-' + k, '[]'); ladeListe() }
+  document.addEventListener('DOMContentLoaded', () => {
+    zeigeFilterTab()
+    document.body.addEventListener('htmx:afterSwap', (e) => { if (e.target.id === 'materialliste') zeigeFilterTab() })
+    if (!document.getElementById('materialliste')) return
+    const p = new URLSearchParams(location.search)
+    if (p.has('quelle') || p.has('tag') || p.has('fmt')) { // explizite Filter-URL gewinnt → localStorage nachziehen
+      localStorage.setItem('f-quellen', JSON.stringify(p.getAll('quelle')))
+      localStorage.setItem('f-tags', JSON.stringify(p.getAll('tag')))
+      localStorage.setItem('f-format', JSON.stringify(p.getAll('fmt')))
+    } else if (filterQuery()) {
+      ladeListe() // gespeicherte Filter der letzten Seite anwenden
+    }
+  })
   function nicknameAendern(aktuell) {
     const d = document.getElementById('nick-dialog')
     d.querySelector('input').value = aktuell
@@ -235,6 +241,7 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
   aside .fuss { margin-top: 1.2rem; padding-top: .8rem; border-top: 1px solid var(--rand); font-size: .8rem; display: flex; flex-direction: column; gap: .3rem; }
 
   .karte { background: var(--card); border: 1px solid var(--rand); border-radius: 10px; padding: .9rem 1.1rem; margin-bottom: .8rem; }
+  .sentinel { height: 2rem; }
   .karte h3 { margin: 0 0 .3rem; font-size: 1.15rem; }
   .meta { font-size: .8rem; color: var(--meta); }
   .tag { display: inline-block; background: var(--chip); border-radius: 999px; padding: .05rem .6rem; font-size: .78rem; margin-right: .3rem; color: var(--primary); }
@@ -490,24 +497,31 @@ export function tagVorschlagChip(v: TagVorschlag, eingeloggt: boolean): string {
 }
 
 // Filterleiste: Kopfzeile mit Kategorien (Tabs), darunter die Chips der gewählten
-// Kategorie. Auswahl liegt in localStorage und überlebt Navigation; zugeklappte
-// Kategorien mit aktiven Filtern zeigen einen blauen Punkt.
-export function filterLeiste(quellen: string[], tags: string[], formate: string[], vorschlaege: TagVorschlag[] = [], eingeloggt = false): string {
+// Kategorie. Zahlen und Aktiv-Zustand kommen vom Server (Chip = Anzahl unter den
+// Filtern der anderen Kategorien); zugeklappte Kategorien mit aktiven Filtern
+// zeigen einen blauen Punkt.
+export interface FilterChip {
+  wert: string
+  anzahl: number
+  aktiv: boolean
+}
+
+export function filterLeiste(quellen: FilterChip[], tags: FilterChip[], formate: FilterChip[], vorschlaege: TagVorschlag[] = [], eingeloggt = false): string {
   const chevron = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>`
-  const kategorien: [string, string, string[]][] = [
+  const kategorien: [string, string, FilterChip[]][] = [
     ['quellen', 'Quellen', quellen],
     ['tags', 'Tags', tags],
     ['format', 'Format', formate],
   ]
   return `<div class="qfilter">
 <div class="fkats">
-${kategorien.map(([k, name]) => `<button class="fkat" data-k="${k}" onclick="fkatWaehlen('${k}')">${chevron}${name}<span class="punkt"></span></button>`).join('')}
+${kategorien.map(([k, name, werte]) => `<button class="fkat${werte.some((w) => w.aktiv) ? ' mit-punkt' : ''}" data-k="${k}" onclick="fkatWaehlen('${k}')">${chevron}${name}<span class="punkt"></span></button>`).join('')}
 <button class="fkat freset" onclick="filterReset()" title="Alle Filter zurücksetzen">reset</button>
 </div>
 ${kategorien
   .map(
     ([k, , werte]) => `<div class="fchips" data-k="${k}">
-${werte.map((w) => `<button class="qchip" data-fk="${k}" data-q="${esc(w)}" onclick="fltrToggle('${k}','${esc(w)}')">${esc(w)}<span class="chipzahl"></span></button>`).join('')}
+${werte.map((w) => `<button class="qchip${w.aktiv ? ' aktiv' : ''}" onclick="fltrToggle('${k}','${esc(w.wert)}')">${esc(w.wert)}<span class="chipzahl">${w.anzahl}</span></button>`).join('')}
 ${k === 'tags' ? vorschlaege.map((v) => tagVorschlagChip(v, eingeloggt)).join('') : ''}
 </div>`
   )
@@ -516,7 +530,7 @@ ${k === 'tags' ? vorschlaege.map((v) => tagVorschlagChip(v, eingeloggt)).join(''
 }
 
 export function materialKarte(m: MaterialKarte, eingeloggt: boolean, admin = false): string {
-  return `<div class="karte" data-quelle="${esc(quellenKey(m.url))}" data-tags="${esc(m.tags.join(' '))}" data-format="${esc(m.format ?? '')}">
+  return `<div class="karte">
   <div style="display:flex;gap:.8rem;align-items:flex-start">
     <div style="flex:1">
       <h3><a href="${esc(m.url)}" rel="noopener">${esc(m.titel)}</a></h3>
