@@ -73,7 +73,7 @@ async function ladeMaterialKarten(where: object, userId: number | null, fachCode
     where: { ...where, fehlCounter: { lt: 3 }, versteckt: false, qualityScore: { gte: 20 }, quelle: { todesCounter: { lt: 3 } } },
     include: {
       tags: { include: { tag: true } },
-      zuordnungen: { include: { teilgebiet: true, kompetenz: true } },
+      zuordnungen: { include: { teilgebiet: { include: { lerngebiet: { include: { fach: true } } } }, kompetenz: true } },
       upvotes: true,
     },
   })
@@ -85,11 +85,14 @@ async function ladeMaterialKarten(where: object, userId: number | null, fachCode
       zusammenfassung: m.zusammenfassung,
       tags: m.tags.map((t) => t.tag.name),
       format: m.format,
-      zuordnungen: m.zuordnungen.map((z) =>
-        z.kompetenz
-          ? { code: z.kompetenz.code, label: z.kompetenz.text, href: koPfad(fachCode, z.kompetenz.code, z.kompetenz.text) }
-          : { code: `${z.teilgebiet.code} (ganz)`, label: z.teilgebiet.name, href: tgPfad(fachCode, z.teilgebiet.code, z.teilgebiet.name) }
-      ),
+      // Chips verlinken ins Fach der jeweiligen Zuordnung — nicht ins Fach der Seite
+      zuordnungen: m.zuordnungen.map((z) => {
+        const fc = z.teilgebiet.lerngebiet.fach.code
+        return z.kompetenz
+          ? { code: z.kompetenz.code, label: z.kompetenz.text, href: koPfad(fc, z.kompetenz.code, z.kompetenz.text) }
+          : { code: `${z.teilgebiet.code} (ganz)`, label: z.teilgebiet.name, href: tgPfad(fc, z.teilgebiet.code, z.teilgebiet.name) }
+      }),
+      fachCode,
       score: m.upvotes.reduce((s, u) => s + u.wert, 0),
       meinVote: m.upvotes.find((u) => u.userId === userId)?.wert ?? 0,
       aiScore: m.qualityScore ?? 0,
@@ -175,10 +178,13 @@ async function filterDaten(userId: number | null, leicht: LeichtesMaterial[], f:
     aktiv: f[kat].includes(wert),
     anzahl: leicht.filter((m) => hat(m) && passtAusser(m, f, kat)).length,
   })
+  // Chips ohne Treffer im aktuellen Kontext (z.B. Informatik-Quellen auf der Physik-Seite)
+  // ausblenden — ausser sie sind gerade aktiv gefiltert
+  const sichtbar = (c: FilterChip) => c.anzahl > 0 || c.aktiv
   return [
-    [...new Set(quellen.map((q) => quellenKey(q.url)))].sort().map((w) => chip('quellen', w, (m) => m.quelle === w)),
-    tags.map((t) => chip('tags', t.name, (m) => m.tags.includes(t.name))),
-    formate.map((x) => x.format!).sort().map((w) => chip('format', w, (m) => m.format === w)),
+    [...new Set(quellen.map((q) => quellenKey(q.url)))].sort().map((w) => chip('quellen', w, (m) => m.quelle === w)).filter(sichtbar),
+    tags.map((t) => chip('tags', t.name, (m) => m.tags.includes(t.name))).filter(sichtbar),
+    formate.map((x) => x.format!).sort().map((w) => chip('format', w, (m) => m.format === w)).filter(sichtbar),
     vorschlaege
       .map((v) => ({ id: v.id, name: v.name, votes: v.votes.length, meinVote: userId != null && v.votes.some((x) => x.userId === userId) }))
       .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name))
@@ -230,6 +236,9 @@ async function nichtGefunden(res: express.Response, was: string, user: Nutzer | 
 }
 
 const SICHTBAR = { fehlCounter: { lt: 3 }, versteckt: false, qualityScore: { gte: 20 }, quelle: { todesCounter: { lt: 3 } } } as const
+
+// Materialien eines Fachs: mindestens eine Zuordnung in dessen Lehrplan
+const inFach = (code: string) => ({ zuordnungen: { some: { teilgebiet: { lerngebiet: { fach: { code } } } } } })
 
 // Startseite: Landingpage für «Unterrichtsmaterial Gymnasium» — echter Inhalt statt Redirect
 app.get('/', async (req, res) => {
@@ -317,13 +326,13 @@ app.get('/fach/:fach', async (req, res) => {
   const side = await baueSidebar(fach.code, undefined, user)
   const basis = `/fach/${fach.code}/liste`
   const [anzahl, liste] = await Promise.all([
-    prisma.material.count({ where: SICHTBAR }),
-    listeFragment({}, basis, req, user, fach.code),
+    prisma.material.count({ where: { ...SICHTBAR, ...inFach(fach.code) } }),
+    listeFragment(inFach(fach.code), basis, req, user, fach.code),
   ])
   const body = `<h1>${esc(fach.name)}</h1>
 <p>Materialien geordnet nach dem <a href="${esc(fach.lehrplanUrl ?? '#')}" rel="noopener">Rahmenlehrplan Maturitätsschulen (EDK 2024)</a>.
-Links ein Teilgebiet oder eine Kompetenz wählen — oder <a href="/suche">Volltextsuche</a>.</p>
-<form class="suche" action="/suche"><input type="search" name="q" placeholder="Volltextsuche, z.B. binärsystem arbeitsblatt"><button>Suchen</button></form>
+Links ein Teilgebiet oder eine Kompetenz wählen — oder <a href="/suche?fach=${esc(fach.code)}">Volltextsuche</a>.</p>
+<form class="suche" action="/suche"><input type="hidden" name="fach" value="${esc(fach.code)}"><input type="search" name="q" placeholder="Volltextsuche, z.B. binärsystem arbeitsblatt"><button>Suchen</button></form>
 <h2>Alle Materialien (${anzahl})</h2>
 <div id="materialliste" data-liste="${esc(basis)}">${liste}</div>`
   res.send(layout(`Unterrichtsmaterial ${fach.name} – Gymnasium`, side, body, user, {
@@ -340,7 +349,7 @@ app.get('/fach/:fach/liste', async (req, res) => {
   if (!fach) return res.status(404).send('Fach nicht gefunden')
   const t = String(req.query.t ?? '')
   const k = String(req.query.k ?? '')
-  let where: object = {}
+  let where: object = inFach(fach.code)
   let kontext = ''
   if (k) {
     const ko = await prisma.kompetenz.findFirst({ where: { code: k, teilgebiet: { lerngebiet: { fach: { code: fach.code } } } } })
@@ -421,9 +430,14 @@ app.get('/suche', async (req, res) => {
   const user = await aktuellerUser(req)
   const q = String(req.query.q ?? '').trim()
   const tag = String(req.query.tag ?? '').trim()
+  // Fach-Kontext (von Fach-Seiten mitgegeben): Resultate aufs Fach einschränken
+  const fachParam = String(req.query.fach ?? '').trim()
+  const suchFach = fachParam ? await prisma.fach.findUnique({ where: { code: fachParam } }) : null
+  const fachCode = suchFach?.code ?? STANDARD_FACH
+  const fachFilter = suchFach ? inFach(suchFach.code) : {}
   let karten: MaterialKarte[] = []
   if (tag) {
-    karten = await ladeMaterialKarten({ tags: { some: { tag: { name: tag } } } }, user?.id ?? null, STANDARD_FACH)
+    karten = await ladeMaterialKarten({ tags: { some: { tag: { name: tag } } }, ...fachFilter }, user?.id ?? null, fachCode)
   } else if (q) {
     // Suchwörter, die auf eine Quelle passen ("oinf.ch simulation"), werden zum Quellen-Filter;
     // der Rest geht in die FTS5-Volltextsuche.
@@ -446,14 +460,14 @@ app.get('/suche', async (req, res) => {
         `SELECT rowid AS id FROM material_fts WHERE material_fts MATCH ? ORDER BY rank LIMIT 100`,
         ftsQuery
       )
-      karten = await ladeMaterialKarten({ id: { in: rows.map((r) => Number(r.id)) }, ...quellFilter }, user?.id ?? null, STANDARD_FACH)
+      karten = await ladeMaterialKarten({ id: { in: rows.map((r) => Number(r.id)) }, ...quellFilter, ...fachFilter }, user?.id ?? null, fachCode)
     } else {
-      karten = await ladeMaterialKarten(quellFilter, user?.id ?? null, STANDARD_FACH)
+      karten = await ladeMaterialKarten({ ...quellFilter, ...fachFilter }, user?.id ?? null, fachCode)
     }
   }
-  const side = await baueSidebar(STANDARD_FACH, undefined, user)
-  const body = `<h1>Suche</h1>
-<form class="suche"><input type="search" name="q" value="${esc(q)}" placeholder="Volltextsuche"><button>Suchen</button></form>
+  const side = await baueSidebar(fachCode, undefined, user)
+  const body = `<h1>Suche${suchFach ? ` – ${esc(suchFach.name)}` : ''}</h1>
+<form class="suche">${suchFach ? `<input type="hidden" name="fach" value="${esc(suchFach.code)}">` : ''}<input type="search" name="q" value="${esc(q)}" placeholder="Volltextsuche"><button>Suchen</button></form>
 ${tag ? `<h2>Tag: ${esc(tag)}</h2>` : q ? `<h2>Resultate für «${esc(q)}»</h2>` : ''}
 ${(q || tag) ? (karten.length ? karten.map((k) => materialKarte(k, !!user, user?.istAdmin ?? false)).join('\n') : '<p>Keine Treffer.</p>') : ''}`
   res.send(layout('Suche', side, body, user, { robots: 'noindex,follow' }))

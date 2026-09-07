@@ -440,6 +440,7 @@ export interface MaterialKarte {
   tags: string[]
   format: string | null
   zuordnungen: { code: string; label: string; href: string }[]
+  fachCode: string // Fach-Kontext der Seite — Tag-Links bleiben im Fach
   score: number
   meinVote: number // +1 | 0 | -1
 }
@@ -538,7 +539,7 @@ export function materialKarte(m: MaterialKarte, eingeloggt: boolean, admin = fal
         m.url.includes('#') ? ` · 📄 <span title="Datei im geteilten Ordner — der Link öffnet den Ordner">${esc(m.url.split('#')[1])}</span>` : ''
       }</div>
       <p style="margin:.2rem 0">${esc(m.zusammenfassung)}</p>
-      <div>${m.format ? `<span class="tag format">${esc(m.format)}</span>` : ''}${m.tags.map((t) => `<a class="tag" href="/suche?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}
+      <div>${m.format ? `<span class="tag format">${esc(m.format)}</span>` : ''}${m.tags.map((t) => `<a class="tag" href="/suche?tag=${encodeURIComponent(t)}&fach=${encodeURIComponent(m.fachCode)}">${esc(t)}</a>`).join('')}
       ${m.zuordnungen.map((z) => `<a class="tag ziel" href="${z.href}" title="${esc(z.label)}">${esc(z.code)}</a>`).join('')}</div>
     </div>
     <div style="display:flex;flex-direction:column;gap:.4rem;align-items:center">
