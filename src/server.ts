@@ -242,7 +242,7 @@ app.get('/', async (req, res) => {
   ])
   const body = `<h1>Unterrichtsmaterial für Schweizer Gymnasien</h1>
 <p>Atlas sammelt frei zugängliches Unterrichtsmaterial von Lehrpersonen für Maturitätsschulen und ordnet es den Lernzielen des <a href="https://edudoc.ch/record/232281/files/Rahmenlehrplan-maturitatsschulen.pdf" rel="noopener">Rahmenlehrplans Maturitätsschulen (EDK 2024)</a> zu — mit Kurzzusammenfassung, Link zur Originalquelle und Bewertungen aus der Community.</p>
-<p>Atlas ist im Aufbau: Als Pilot deckt es das Grundlagenfach Informatik ab — weitere Fächer folgen.</p>
+<p>Atlas ist im Aufbau: Als Pilot deckt es die Grundlagenfächer Informatik, Physik und Mathematik ab — weitere Fächer folgen.</p>
 <p class="meta">${materialien} Materialien aus ${quellen} Quellen · kostenlos und ohne Registrierung durchsuchbar</p>
 <form class="suche" action="/suche"><input type="search" name="q" placeholder="Volltextsuche, z.B. binärsystem arbeitsblatt"><button>Suchen</button></form>
 <h2>Fächer</h2>

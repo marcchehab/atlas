@@ -2,14 +2,14 @@ export interface Klassifikation {
   qualityScore: number // 0–100; <20 = nicht aufgenommen
   titel: string
   zusammenfassung: string
-  zuordnungen: string[] // Codes: "T1.2" (ganzes Teilgebiet) oder "K1.2.1" (einzelne Kompetenz)
+  zuordnungen: string[] // Codes: "T:<fach>:1.2" (ganzes Teilgebiet) oder "K:<fach>:1.2.1" (einzelne Kompetenz)
   tags: string[]
   neueTagVorschlaege: string[]
 }
 
 // Auswahlliste fürs erzwungene Enum: Teilgebiete und Kompetenzen des Lehrplans.
 export interface ZuordnungsOption {
-  code: string // "T1.2" | "K1.2.1"
+  code: string // "T:<fach>:1.2" | "K:<fach>:1.2.1"
   label: string
 }
 
