@@ -26,6 +26,17 @@ async function aktuellerUser(req: express.Request): Promise<Nutzer | null> {
 
 const STANDARD_FACH = 'informatik-gf'
 
+// Zuletzt besuchtes Fach im Cookie — Nicht-Fach-Seiten (Admin, Quellen, Suche …)
+// behalten so den Fach-Kontext in der Sidebar statt auf Informatik zurückzufallen.
+function merkeFach(res: express.Response, code: string) {
+  res.cookie('fach', code, { sameSite: 'lax', maxAge: 180 * 24 * 3600 * 1000 })
+}
+async function aktivesFach(req: express.Request): Promise<string> {
+  const code = String(req.cookies?.fach ?? '')
+  if (code && (await prisma.fach.findUnique({ where: { code } }))) return code
+  return STANDARD_FACH
+}
+
 async function baueSidebar(fachCode: string, aktiv: string | undefined, user: Nutzer | null): Promise<string> {
   const faecher = await prisma.fach.findMany({ orderBy: { name: 'asc' }, select: { code: true, name: true } })
   const fach = await prisma.fach.findUnique({
@@ -229,8 +240,8 @@ async function listeFragment(where: object, basisUrl: string, req: express.Reque
 }
 
 // HTML-404 mit Layout statt Plaintext — kein toter Endpunkt für Besucher:innen und Crawler
-async function nichtGefunden(res: express.Response, was: string, user: Nutzer | null) {
-  const side = await baueSidebar(STANDARD_FACH, undefined, user)
+async function nichtGefunden(req: express.Request, res: express.Response, was: string, user: Nutzer | null) {
+  const side = await baueSidebar(await aktivesFach(req), undefined, user)
   res.status(404).send(layout('Nicht gefunden', side, `<h1>${esc(was)} nicht gefunden</h1>
 <p>Vielleicht hilft die <a href="/">Startseite</a> oder die <a href="/suche">Suche</a>.</p>`, user, { robots: 'noindex' }))
 }
@@ -243,7 +254,7 @@ const inFach = (code: string) => ({ zuordnungen: { some: { teilgebiet: { lerngeb
 // Startseite: Landingpage für «Unterrichtsmaterial Gymnasium» — echter Inhalt statt Redirect
 app.get('/', async (req, res) => {
   const user = await aktuellerUser(req)
-  const side = await baueSidebar(STANDARD_FACH, undefined, user)
+  const side = await baueSidebar(await aktivesFach(req), undefined, user)
   const [materialien, quellen, faecher] = await Promise.all([
     prisma.material.count({ where: SICHTBAR }),
     prisma.quelle.count({ where: { todesCounter: { lt: 3 }, materialien: { some: { qualityScore: { gte: 20 }, versteckt: false, fehlCounter: { lt: 3 } } } } }),
@@ -322,7 +333,8 @@ ${pfade.map((p) => `<url><loc>${esc(BASE_URL + p)}</loc></url>`).join('\n')}
 app.get('/fach/:fach', async (req, res) => {
   const user = await aktuellerUser(req)
   const fach = await prisma.fach.findUnique({ where: { code: req.params.fach } })
-  if (!fach) return nichtGefunden(res, 'Fach', user)
+  if (!fach) return nichtGefunden(req, res, 'Fach', user)
+  merkeFach(res, fach.code)
   const side = await baueSidebar(fach.code, undefined, user)
   const basis = `/fach/${fach.code}/liste`
   const [anzahl, liste] = await Promise.all([
@@ -375,7 +387,8 @@ app.get('/fach/:fach/t/:code', async (req, res) => {
     where: { code, lerngebiet: { fach: { code: req.params.fach } } },
     include: { lerngebiet: { include: { fach: true } }, kompetenzen: { orderBy: { code: 'asc' } } },
   })
-  if (!tg) return nichtGefunden(res, 'Teilgebiet', user)
+  if (!tg) return nichtGefunden(req, res, 'Teilgebiet', user)
+  merkeFach(res, tg.lerngebiet.fach.code)
   const fachKurz = tg.lerngebiet.fach.name.replace(/\s*\(.*\)$/, '')
   const kanonisch = tgPfad(req.params.fach, tg.code, tg.name)
   if (req.path !== kanonisch) return res.redirect(301, kanonisch)
@@ -404,7 +417,8 @@ app.get('/fach/:fach/k/:code', async (req, res) => {
     where: { code, teilgebiet: { lerngebiet: { fach: { code: req.params.fach } } } },
     include: { teilgebiet: { include: { lerngebiet: { include: { fach: true } } } } },
   })
-  if (!ko) return nichtGefunden(res, 'Lernziel', user)
+  if (!ko) return nichtGefunden(req, res, 'Lernziel', user)
+  merkeFach(res, ko.teilgebiet.lerngebiet.fach.code)
   const kanonisch = koPfad(req.params.fach, ko.code, ko.text)
   if (req.path !== kanonisch) return res.redirect(301, kanonisch)
   const fachKurz = ko.teilgebiet.lerngebiet.fach.name.replace(/\s*\(.*\)$/, '')
@@ -433,7 +447,7 @@ app.get('/suche', async (req, res) => {
   // Fach-Kontext (von Fach-Seiten mitgegeben): Resultate aufs Fach einschränken
   const fachParam = String(req.query.fach ?? '').trim()
   const suchFach = fachParam ? await prisma.fach.findUnique({ where: { code: fachParam } }) : null
-  const fachCode = suchFach?.code ?? STANDARD_FACH
+  const fachCode = suchFach?.code ?? (await aktivesFach(req))
   const fachFilter = suchFach ? inFach(suchFach.code) : {}
   let karten: MaterialKarte[] = []
   if (tag) {
@@ -476,7 +490,7 @@ ${(q || tag) ? (karten.length ? karten.map((k) => materialKarte(k, !!user, user?
 // Melden: nur mit Login (Kostenbremse) — Quelle wird sofort gecrawlt, damit man das Resultat sieht
 app.get('/melden', async (req, res) => {
   const user = await aktuellerUser(req)
-  const vorausgewaehlt = String(req.query.fach ?? STANDARD_FACH)
+  const vorausgewaehlt = String(req.query.fach ?? (await aktivesFach(req)))
   if (!user) return res.redirect(`/login?weiter=${encodeURIComponent(`/melden?fach=${vorausgewaehlt}`)}`)
   const faecher = await prisma.fach.findMany({ select: { code: true, name: true } })
   const side = await baueSidebar(vorausgewaehlt, undefined, user)
@@ -511,7 +525,7 @@ const MELDE_LIMIT = 20 // Quellen pro Konto und 24h — Kostenbremse
 app.post('/melden', async (req, res) => {
   const user = await aktuellerUser(req)
   if (!user) return res.redirect('/login')
-  const side = await baueSidebar(STANDARD_FACH, undefined, user)
+  const side = await baueSidebar(await aktivesFach(req), undefined, user)
   const gemeldet24h = await prisma.quelle.count({
     where: { melderId: user.id, createdAt: { gt: new Date(Date.now() - 24 * 3600 * 1000) } },
   })
@@ -591,9 +605,9 @@ ${quelle && quelle.todesCounter > 0 ? '<p class="hinweis">Die Quelle war nicht e
 
 app.get('/quelle/:id/status', async (req, res) => {
   const user = await aktuellerUser(req)
-  const side = await baueSidebar(STANDARD_FACH, undefined, user)
+  const side = await baueSidebar(await aktivesFach(req), undefined, user)
   const quelle = await prisma.quelle.findUnique({ where: { id: Number(req.params.id) } })
-  if (!quelle) return nichtGefunden(res, 'Quelle', user)
+  if (!quelle) return nichtGefunden(req, res, 'Quelle', user)
   const body = `<h1>Quelle gemeldet</h1>
 <p><code>${esc(quelle.url)}</code></p>
 ${await crawlStatusFragment(quelle.id)}`
@@ -657,7 +671,7 @@ ${[...leerGruppen.entries()].map(gruppeHtml).join('\n')}
 
 app.get('/quellen', async (req, res) => {
   const user = await aktuellerUser(req)
-  const side = await baueSidebar(STANDARD_FACH, undefined, user)
+  const side = await baueSidebar(await aktivesFach(req), undefined, user)
   const body = `<h1>Quellen</h1>
 ${await quellenListe(user)}`
   res.send(layout('Quellen', side, body, user, { pfad: '/quellen', beschreibung: 'Alle Quellen, aus denen Atlas Unterrichtsmaterial für Schweizer Gymnasien sammelt — Websites, Git-Repos und Cloud-Ordner von Lehrpersonen.' }))
@@ -761,7 +775,7 @@ function nurAdmin(user: Nutzer | null, res: express.Response): user is Nutzer {
 app.get('/admin', async (req, res) => {
   const user = await aktuellerUser(req)
   if (!nurAdmin(user, res)) return
-  const side = await baueSidebar(STANDARD_FACH, undefined, user)
+  const side = await baueSidebar(await aktivesFach(req), undefined, user)
   const abgelehnte = await prisma.material.findMany({ where: { qualityScore: { lt: 20 } }, orderBy: { createdAt: 'desc' }, take: 100, include: { quelle: true } })
   const versteckte = await prisma.material.findMany({ where: { versteckt: true }, orderBy: { createdAt: 'desc' } })
   const tote = await prisma.quelle.findMany({ where: { todesCounter: { gte: 3 } }, include: { melder: true } })
@@ -907,14 +921,14 @@ app.get('/api/auth/callback/microsoft', async (req, res) => {
     const { email, name } = await auth.microsoftCallback(String(req.query.code))
     loginAbschliessen(res, await userFuerEmail(email, name), cookie.weiter ?? '/')
   } catch (e) {
-    const side = await baueSidebar(STANDARD_FACH, undefined, null)
+    const side = await baueSidebar(await aktivesFach(req), undefined, null)
     res.status(400).send(layout('Fehler', side, `<p>Anmeldung fehlgeschlagen (${esc((e as Error).message)}). <a href="/login">Nochmal versuchen</a></p>`, null))
   }
 })
 
 app.post('/auth/magic', async (req, res) => {
   const email = String(req.body.email ?? '').toLowerCase().trim()
-  const side = await baueSidebar(STANDARD_FACH, undefined, null)
+  const side = await baueSidebar(await aktivesFach(req), undefined, null)
   if (!email.includes('@')) return res.redirect('/login')
   try {
     await auth.sendeMagicLink(email)
@@ -927,7 +941,7 @@ app.post('/auth/magic', async (req, res) => {
 app.get('/api/auth/magic', async (req, res) => {
   const email = auth.magicTokenPruefen(String(req.query.token ?? ''))
   if (!email) {
-    const side = await baueSidebar(STANDARD_FACH, undefined, null)
+    const side = await baueSidebar(await aktivesFach(req), undefined, null)
     return res.status(400).send(layout('Link ungültig', side, '<p>Der Link ist ungültig oder abgelaufen. <a href="/login">Neu anfordern</a></p>', null))
   }
   loginAbschliessen(res, await userFuerEmail(email), '/')
@@ -949,7 +963,7 @@ app.post('/logout', (_req, res) => {
 
 // Unbekannte Pfade: HTML-404 statt Express-Default
 app.use(async (req, res) => {
-  nichtGefunden(res, 'Seite', await aktuellerUser(req))
+  nichtGefunden(req, res, 'Seite', await aktuellerUser(req))
 })
 
 const PORT = Number(process.env.PORT ?? 3000)
