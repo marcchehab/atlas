@@ -28,11 +28,21 @@ interface KlassifikationsKontext {
   teilgebiete: Awaited<ReturnType<typeof ladeKontext>>['teilgebiete']
 }
 
-async function ladeKontext() {
-  const teilgebiete = await prisma.teilgebiet.findMany({ include: { kompetenzen: true, lerngebiet: true } })
+// Codes sind Fach-qualifiziert («T:physik-gf:2.1», «K:informatik-gf:1.2.1»), weil
+// Teilgebiet-/Kompetenz-Codes («1.1» …) pro Fach vergeben werden und sonst kollidieren.
+// Ein Fach-Hinweis der Melder:in schränkt das Raster aufs eine Fach ein.
+async function ladeKontext(fachCode?: string | null) {
+  const include = { kompetenzen: true, lerngebiet: { include: { fach: true } } } as const
+  let teilgebiete = await prisma.teilgebiet.findMany({
+    where: fachCode ? { lerngebiet: { fach: { code: fachCode } } } : {},
+    include,
+  })
+  if (teilgebiete.length === 0 && fachCode) teilgebiete = await prisma.teilgebiet.findMany({ include }) // unbekannter Hinweis → alle Fächer
+  const mehrereFaecher = new Set(teilgebiete.map((tg) => tg.lerngebiet.fachId)).size > 1
+  const fachPrefix = (tg: (typeof teilgebiete)[number]) => (mehrereFaecher ? `${tg.lerngebiet.fach.name}: ` : '')
   const optionen = teilgebiete.flatMap((tg) => [
-    { code: `T${tg.code}`, label: `${tg.lerngebiet.name} → ${tg.name} (gesamtes Teilgebiet)` },
-    ...tg.kompetenzen.map((ko) => ({ code: `K${ko.code}`, label: ko.text })),
+    { code: `T:${tg.lerngebiet.fach.code}:${tg.code}`, label: `${fachPrefix(tg)}${tg.lerngebiet.name} → ${tg.name} (gesamtes Teilgebiet)` },
+    ...tg.kompetenzen.map((ko) => ({ code: `K:${tg.lerngebiet.fach.code}:${ko.code}`, label: `${fachPrefix(tg)}${ko.text}` })),
   ])
   const tags = await prisma.tag.findMany({ where: { status: 'AKTIV' }, select: { name: true } })
   return { optionen, tagNamen: tags.map((t) => t.name), teilgebiete }
@@ -76,12 +86,14 @@ async function verarbeiteMaterial(
 
   const zuordnungen: { teilgebietId: number; kompetenzId: number | null }[] = []
   for (const code of k.zuordnungen) {
-    if (code.startsWith('T')) {
-      const tg = ctx.teilgebiete.find((t) => t.code === code.slice(1))
+    const [typ, fachCode, rest] = code.split(':')
+    const imFach = ctx.teilgebiete.filter((t) => t.lerngebiet.fach.code === fachCode)
+    if (typ === 'T') {
+      const tg = imFach.find((t) => t.code === rest)
       if (tg) zuordnungen.push({ teilgebietId: tg.id, kompetenzId: null })
-    } else if (code.startsWith('K')) {
-      for (const tg of ctx.teilgebiete) {
-        const ko = tg.kompetenzen.find((x) => x.code === code.slice(1))
+    } else if (typ === 'K') {
+      for (const tg of imFach) {
+        const ko = tg.kompetenzen.find((x) => x.code === rest)
         if (ko) zuordnungen.push({ teilgebietId: tg.id, kompetenzId: ko.id })
       }
     }
@@ -151,17 +163,23 @@ async function raeumeAuf(quelleId: number, gesehen: Set<string>, gedeckelt: bool
 
 // ---------- Website-Connector: Sitemap bevorzugt, sonst Links der Startseite ----------
 
-const BINAER = /\.(pdf|zip|png|jpe?g|gif|svg|ico|css|js|mp[34]|webm|woff2?|xml|txt)(\?|$)/i
+const BINAER = /\.(pdf|zip|png|jpe?g|gif|svg|ico|css|js|json|mp[34]|og[gv]|wav|webm|woff2?|xml|txt|webmanifest)(\?|$)/i
 
 function sammleUrls(quelleUrl: string, html: string): string[] {
   const basis = new URL(quelleUrl)
   const urls = new Set<string>()
   for (const m of html.matchAll(/href="([^"#]+)"/g)) {
     try {
-      const u = new URL(m[1], quelleUrl)
+      // HTML-Entities decodieren — sonst heissen Query-Params «amp;do» statt «do»
+      const href = m[1].replace(/&amp;/g, '&').replace(/&#0*38;/g, '&')
+      const u = new URL(href, quelleUrl)
       if (u.hostname !== basis.hostname || BINAER.test(u.pathname)) continue
       u.hash = ''
-      u.search = ''
+      // Query behalten (DokuWiki & Co. routen über ?id=…), aber normalisieren:
+      // Tracking-Parameter raus, stabile Reihenfolge. Aktions-Links (?do=edit …) ganz weg.
+      if (u.searchParams.has('do')) continue
+      for (const p of [...u.searchParams.keys()]) if (/^(utm_|fbclid|gclid)/.test(p)) u.searchParams.delete(p)
+      u.searchParams.sort()
       urls.add(u.toString())
     } catch { /* kaputte hrefs ignorieren */ }
   }
@@ -202,7 +220,9 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   const host = new URL(quelle.url).hostname
   // Quellen mit Pfad (eduskript.org/evh, swisseduc.ch/informatik) bleiben auf ihrem
   // Präfix — sonst zieht die Origin-Sitemap die ganze Domain herein.
-  const basisPfad = new URL(quelle.url).pathname.replace(/\/$/, '')
+  // Zeigt die Quelle auf eine Datei (…/physik_index.html, /doku.php), zählt deren
+  // Ordner als Präfix — unterhalb einer Datei läge sonst nie eine zweite Seite.
+  const basisPfad = new URL(quelle.url).pathname.replace(/\/[^/]*\.[^/]+$/, '').replace(/\/$/, '')
   const passt = (u: string) => {
     try {
       const p = new URL(u)
@@ -222,36 +242,62 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   const gesehen = new Set<string>()
   // Deckel zählt AI-Verarbeitungen (Kosten); Besuche sind billig und haben nur ein Sicherheitslimit
   const verarbeitet = () => stat.neu + stat.aktualisiert + stat.abgelehnt
+  // Höflichkeit: kurze Pause zwischen Seiten; bei 429 (Rate-Limit) einmal warten
+  // und wiederholen, bei gehäuften 429ern die Quelle für diese Nacht aufgeben.
+  const PAUSE_MS = 400
+  let rateLimits = 0
+  let abgebrochen = false // Abbruch zählt wie gedeckelt: fehlende URLs nicht als tot werten
   while (queue.length && besucht < 1000 && verarbeitet() < MAX_SEITEN) {
     const url = queue.shift()!
     besucht++
     try {
+      if (besucht > 1) await new Promise((r) => setTimeout(r, PAUSE_MS))
       let res = url === quelle.url ? null : await fetchSeite(url)
       let effektiveUrl = url
+      if (res?.status === 429) {
+        rateLimits++
+        if (rateLimits > 5) { abgebrochen = true; console.error(`Rate-Limit bei ${url} — Quelle für diese Nacht abgebrochen`); break }
+        await new Promise((r) => setTimeout(r, 10000))
+        res = await fetchSeite(url)
+      }
       // VitePress & Co. mit cleanUrls: Links enden auf .html, Seiten liegen ohne Endung
       if (res && !res.ok && url.endsWith('.html')) {
         const ohne = url.slice(0, -5)
         const retry = await fetchSeite(ohne)
         if (retry.ok) { res = retry; effektiveUrl = ohne }
       }
-      const html = res ? (res.ok ? await res.text() : null) : startHtml
-      if (html == null) {
+      if (res && !res.ok) {
         stat.fehler++
-        if (stat.fehler <= 8) console.error(`Crawl-Fehler ${url}: HTTP ${res?.status}`)
+        if (stat.fehler <= 8) console.error(`Crawl-Fehler ${url}: HTTP ${res.status}`)
         continue
       }
-      if (!sitemap) {
-        for (const l of sammleUrls(effektiveUrl, html)) {
-          if (passt(l) && !geplant.has(l)) { geplant.add(l); queue.push(l) }
+      const ctype = res?.headers.get('content-type') ?? 'text/html'
+      let text: string
+      let format = 'webseite'
+      if (res && /application\/pdf/i.test(ctype)) {
+        // PDFs hinter Skript-URLs (DokuWiki fetch.php & Co.) — die Endungs-Sperre
+        // (BINAER) greift dort nicht, also über den Content-Type erkennen
+        const tmp = path.join(process.cwd(), 'data', 'tmp', `web-${quelle.id}.pdf`)
+        await fs.mkdir(path.dirname(tmp), { recursive: true })
+        await fs.writeFile(tmp, Buffer.from(await res.arrayBuffer()))
+        try { text = await pdftotext(tmp) } finally { await fs.rm(tmp, { force: true }) }
+        format = 'pdf'
+      } else if (res && !/html|xml/i.test(ctype)) {
+        continue // css.php, Feeds, Audio … gar nicht erst zur AI; ohne gesehen-Eintrag altern Alt-Materialien via fehlCounter raus
+      } else {
+        const html = res ? await res.text() : startHtml
+        if (!sitemap) {
+          for (const l of sammleUrls(effektiveUrl, html)) {
+            if (passt(l) && !geplant.has(l)) { geplant.add(l); queue.push(l) }
+          }
         }
+        // Hash über den extrahierten Text, nicht das rohe HTML: stabil gegen kosmetische
+        // HTML-Änderungen und Grundlage der Duplikat-Erkennung (SPAs liefern auf jeder
+        // URL dasselbe serverseitige Gerüst — z.B. Eduskript-Sites, solange deren
+        // Markdown-Export fehlt).
+        try { text = await extract(html) } catch { text = stripTags(html) }
       }
       gesehen.add(effektiveUrl)
-      // Hash über den extrahierten Text, nicht das rohe HTML: stabil gegen kosmetische
-      // HTML-Änderungen und Grundlage der Duplikat-Erkennung (SPAs liefern auf jeder
-      // URL dasselbe serverseitige Gerüst — z.B. Eduskript-Sites, solange deren
-      // Markdown-Export fehlt).
-      let text: string
-      try { text = await extract(html) } catch { text = stripTags(html) }
       const h = hash(text)
       const vorhanden = await prisma.material.findUnique({ where: { url: effektiveUrl } })
       if (vorhanden && vorhanden.contentHash === h && !force) { stat.unverändert++; continue }
@@ -261,15 +307,15 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
         stat.duplikat++
         continue
       }
-      stat[await verarbeiteMaterial(quelle.id, effektiveUrl, text, h, ctx, force, true)]++
+      stat[await verarbeiteMaterial(quelle.id, effektiveUrl, text, h, ctx, force, true, format)]++
     } catch (e) {
       stat.fehler++
       if (stat.fehler <= 5) console.error(`Crawl-Fehler ${url}: ${(e as Error).message}`)
     }
   }
-  const gedeckelt = queue.length > 0
+  const gedeckelt = queue.length > 0 || abgebrochen
   const aufraeumen = await raeumeAuf(quelle.id, gesehen, gedeckelt)
-  return `${besucht} Seiten${gedeckelt ? ` (gedeckelt, ${MAX_SEITEN}/Nacht, ${queue.length} offen)` : ''} via ${sitemap ? 'Sitemap' : 'Link-Spider'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
+  return `${besucht} Seiten${gedeckelt ? ` (${abgebrochen ? 'Rate-Limit-Abbruch' : `gedeckelt, ${MAX_SEITEN}/Nacht`}, ${queue.length} offen)` : ''} via ${sitemap ? 'Sitemap' : 'Link-Spider'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
 }
 
 // ---------- Buch-SPA-Connector (mygymer-Stil) ----------
@@ -750,7 +796,7 @@ async function crawlCloud(quelle: { id: number; url: string; etag: string | null
 
 export async function crawlQuelle(quelleId: number, force = false, sammelLauf = false): Promise<string> {
   const quelle = await prisma.quelle.findUniqueOrThrow({ where: { id: quelleId } })
-  const ctx = await ladeKontext()
+  const ctx = await ladeKontext(quelle.fach)
   try {
     await pruefeOeffentlich(quelle.url) // SSRF-Schutz — kann sich auch nachträglich ändern (DNS)
     const resultat =
