@@ -118,11 +118,22 @@ interface ListenFilter {
   quellen: string[]
   tags: string[]
   format: string[]
+  q: string // Volltextsuche innerhalb der Liste (FTS5)
 }
 
 function leseFilter(req: express.Request): ListenFilter {
   const arr = (v: unknown) => (Array.isArray(v) ? v.map(String) : v != null ? [String(v)] : [])
-  return { quellen: arr(req.query.quelle), tags: arr(req.query.tag), format: arr(req.query.fmt) }
+  return { quellen: arr(req.query.quelle), tags: arr(req.query.tag), format: arr(req.query.fmt), q: String(req.query.q ?? '').trim() }
+}
+
+// FTS5-Volltextsuche → Material-Ids (Wörter gequotet = keine FTS-Syntax-Injektion)
+async function ftsIds(q: string): Promise<Set<number>> {
+  const ftsQuery = q.split(/\s+/).map((w) => `"${w.replace(/"/g, '')}"`).join(' ')
+  const rows = await prisma.$queryRawUnsafe<{ id: number }[]>(
+    `SELECT rowid AS id FROM material_fts WHERE material_fts MATCH ? ORDER BY rank LIMIT 500`,
+    ftsQuery
+  )
+  return new Set(rows.map((r) => Number(r.id)))
 }
 
 interface LeichtesMaterial {
@@ -208,7 +219,12 @@ async function filterDaten(userId: number | null, leicht: LeichtesMaterial[], f:
 async function listeFragment(where: object, basisUrl: string, req: express.Request, user: Nutzer | null, fachCode: string): Promise<string> {
   const f = leseFilter(req)
   const offset = Math.max(0, Number(req.query.offset) || 0)
-  const leicht = await ladeLeicht(where)
+  let leicht = await ladeLeicht(where)
+  // Volltext-Eingrenzung vor Chips und Karten — die Filterleiste zählt im Suchkontext mit
+  if (f.q) {
+    const treffer = await ftsIds(f.q)
+    leicht = leicht.filter((m) => treffer.has(m.id))
+  }
   const gefiltert = leicht
     .filter((m) => passtAusser(m, f, null))
     .sort((a, b) => b.score - a.score || b.aiScore - a.aiScore)
@@ -226,6 +242,7 @@ async function listeFragment(where: object, basisUrl: string, req: express.Reque
     f.quellen.forEach((v) => qs.append('quelle', v))
     f.tags.forEach((v) => qs.append('tag', v))
     f.format.forEach((v) => qs.append('fmt', v))
+    if (f.q) qs.set('q', f.q)
     qs.set('offset', String(offset + SEITE))
     sentinel = `<div class="sentinel" hx-get="${esc(basisUrl + (basisUrl.includes('?') ? '&' : '?') + qs.toString())}" hx-trigger="revealed" hx-swap="outerHTML"></div>`
   }
@@ -343,8 +360,8 @@ app.get('/fach/:fach', async (req, res) => {
   ])
   const body = `<h1>${esc(fach.name)}</h1>
 <p>Materialien geordnet nach dem <a href="${esc(fach.lehrplanUrl ?? '#')}" rel="noopener">Rahmenlehrplan Maturitätsschulen (EDK 2024)</a>.
-Links ein Teilgebiet oder eine Kompetenz wählen — oder <a href="/suche?fach=${esc(fach.code)}">Volltextsuche</a>.</p>
-<form class="suche" action="/suche"><input type="hidden" name="fach" value="${esc(fach.code)}"><input type="search" name="q" placeholder="Volltextsuche, z.B. binärsystem arbeitsblatt"><button>Suchen</button></form>
+Links ein Teilgebiet oder eine Kompetenz wählen — oder direkt suchen.</p>
+<form class="suche" onsubmit="ladeListe();return false"><input type="search" id="suchfeld" oninput="sucheTipp()" value="${esc(String(req.query.q ?? ''))}" placeholder="Volltextsuche, z.B. binärsystem arbeitsblatt"><button>Suchen</button></form>
 <h2>Alle Materialien (${anzahl})</h2>
 <div id="materialliste" data-liste="${esc(basis)}">${liste}</div>`
   res.send(layout(`Unterrichtsmaterial ${fach.name} – Gymnasium`, side, body, user, {
@@ -402,6 +419,7 @@ app.get('/fach/:fach/t/:code', async (req, res) => {
   const body = `<h1>${esc(tg.code)} ${esc(tg.name)} – Unterrichtsmaterial</h1>
 <p class="meta">${tg.lerngebiet.nummer}. ${esc(tg.lerngebiet.name)}</p>
 <ul class="meta">${tg.kompetenzen.map((k) => `<li><a href="${koPfad(req.params.fach, k.code, k.text)}">${esc(k.text)}</a></li>`).join('')}</ul>
+<form class="suche" onsubmit="ladeListe();return false"><input type="search" id="suchfeld" oninput="sucheTipp()" value="${esc(String(req.query.q ?? ''))}" placeholder="Volltextsuche in diesem Teilgebiet"><button>Suchen</button></form>
 <div id="materialliste" data-liste="${esc(basis)}">${liste}</div>`
   res.send(layout(`Unterrichtsmaterial ${tg.name} – ${fachKurz} Gymnasium`, side, body, user, {
     pfad: kanonisch,
@@ -432,6 +450,7 @@ app.get('/fach/:fach/k/:code', async (req, res) => {
   const body = `<h1>${esc(ko.code)} ${esc(grossErst(ko.text))}</h1>
 <p>Unterrichtsmaterial zum Lernziel: Die Maturandinnen und Maturanden können <strong>${esc(ko.text)}</strong>.</p>
 <p class="meta"><a href="${tgPfad(req.params.fach, ko.teilgebiet.code, ko.teilgebiet.name)}">${esc(ko.teilgebiet.code)} ${esc(ko.teilgebiet.name)}</a> · ${ko.teilgebiet.lerngebiet.nummer}. ${esc(ko.teilgebiet.lerngebiet.name)}</p>
+<form class="suche" onsubmit="ladeListe();return false"><input type="search" id="suchfeld" oninput="sucheTipp()" value="${esc(String(req.query.q ?? ''))}" placeholder="Volltextsuche in diesem Lernziel"><button>Suchen</button></form>
 <div id="materialliste" data-liste="${esc(basis)}">${liste}</div>`
   res.send(layout(`Unterrichtsmaterial: ${grossErst(kürze(ko.text, 60))} – ${fachKurz} Gymnasium`, side, body, user, {
     pfad: kanonisch,
@@ -449,9 +468,27 @@ app.get('/suche', async (req, res) => {
   const suchFach = fachParam ? await prisma.fach.findUnique({ where: { code: fachParam } }) : null
   const fachCode = suchFach?.code ?? (await aktivesFach(req))
   const fachFilter = suchFach ? inFach(suchFach.code) : {}
+  // Bereichs-Kontext (von Teilgebiet-/Lernziel-Seiten): Suche nur innerhalb dieser Zuordnung
+  const tParam = String(req.query.t ?? '').trim()
+  const kParam = String(req.query.k ?? '').trim()
+  let bereich: { label: string; hidden: string } | null = null
+  let bereichFilter: object = {}
+  if (suchFach && kParam) {
+    const ko = await prisma.kompetenz.findFirst({ where: { code: kParam, teilgebiet: { lerngebiet: { fach: { code: suchFach.code } } } } })
+    if (ko) {
+      bereichFilter = { zuordnungen: { some: { kompetenzId: ko.id } } }
+      bereich = { label: `${ko.code} ${grossErst(kürze(ko.text, 70))}`, hidden: `<input type="hidden" name="k" value="${esc(ko.code)}">` }
+    }
+  } else if (suchFach && tParam) {
+    const tg = await prisma.teilgebiet.findFirst({ where: { code: tParam, lerngebiet: { fach: { code: suchFach.code } } } })
+    if (tg) {
+      bereichFilter = { zuordnungen: { some: { teilgebietId: tg.id } } }
+      bereich = { label: `${tg.code} ${tg.name}`, hidden: `<input type="hidden" name="t" value="${esc(tg.code)}">` }
+    }
+  }
   let karten: MaterialKarte[] = []
   if (tag) {
-    karten = await ladeMaterialKarten({ tags: { some: { tag: { name: tag } } }, ...fachFilter }, user?.id ?? null, fachCode)
+    karten = await ladeMaterialKarten({ tags: { some: { tag: { name: tag } } }, ...fachFilter, ...bereichFilter }, user?.id ?? null, fachCode)
   } else if (q) {
     // Suchwörter, die auf eine Quelle passen ("oinf.ch simulation"), werden zum Quellen-Filter;
     // der Rest geht in die FTS5-Volltextsuche.
@@ -474,14 +511,15 @@ app.get('/suche', async (req, res) => {
         `SELECT rowid AS id FROM material_fts WHERE material_fts MATCH ? ORDER BY rank LIMIT 100`,
         ftsQuery
       )
-      karten = await ladeMaterialKarten({ id: { in: rows.map((r) => Number(r.id)) }, ...quellFilter, ...fachFilter }, user?.id ?? null, fachCode)
+      karten = await ladeMaterialKarten({ id: { in: rows.map((r) => Number(r.id)) }, ...quellFilter, ...fachFilter, ...bereichFilter }, user?.id ?? null, fachCode)
     } else {
-      karten = await ladeMaterialKarten({ ...quellFilter, ...fachFilter }, user?.id ?? null, fachCode)
+      karten = await ladeMaterialKarten({ ...quellFilter, ...fachFilter, ...bereichFilter }, user?.id ?? null, fachCode)
     }
   }
-  const side = await baueSidebar(fachCode, undefined, user)
+  const side = await baueSidebar(fachCode, bereich && kParam ? `K${kParam}` : bereich && tParam ? `T${tParam}` : undefined, user)
   const body = `<h1>Suche${suchFach ? ` – ${esc(suchFach.name)}` : ''}</h1>
-<form class="suche">${suchFach ? `<input type="hidden" name="fach" value="${esc(suchFach.code)}">` : ''}<input type="search" name="q" value="${esc(q)}" placeholder="Volltextsuche"><button>Suchen</button></form>
+${bereich ? `<p class="meta">Eingeschränkt auf ${esc(bereich.label)}</p>` : ''}
+<form class="suche">${suchFach ? `<input type="hidden" name="fach" value="${esc(suchFach.code)}">` : ''}${bereich?.hidden ?? ''}<input type="search" name="q" value="${esc(q)}" placeholder="Volltextsuche"><button>Suchen</button></form>
 ${tag ? `<h2>Tag: ${esc(tag)}</h2>` : q ? `<h2>Resultate für «${esc(q)}»</h2>` : ''}
 ${(q || tag) ? (karten.length ? karten.map((k) => materialKarte(k, !!user, user?.istAdmin ?? false)).join('\n') : '<p>Keine Treffer.</p>') : ''}`
   res.send(layout('Suche', side, body, user, { robots: 'noindex,follow' }))

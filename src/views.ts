@@ -111,8 +111,12 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
     fltr('quellen').forEach((v) => p.append('quelle', v))
     fltr('tags').forEach((v) => p.append('tag', v))
     fltr('format').forEach((v) => p.append('fmt', v))
+    const s = document.getElementById('suchfeld')
+    if (s && s.value.trim()) p.set('q', s.value.trim())
     return p.toString()
   }
+  let suchTimer
+  function sucheTipp() { clearTimeout(suchTimer); suchTimer = setTimeout(ladeListe, 300) }
   function ladeListe() {
     const el = document.getElementById('materialliste')
     const q = filterQuery()
@@ -124,7 +128,12 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
     history.replaceState(null, '', location.pathname + (q ? '?' + q : ''))
     htmx.ajax('GET', el.dataset.liste + (q ? (el.dataset.liste.includes('?') ? '&' : '?') + q : ''), { target: '#materialliste', swap: 'innerHTML' })
   }
-  function filterReset() { for (const k of ['quellen', 'tags', 'format']) localStorage.setItem('f-' + k, '[]'); ladeListe() }
+  function filterReset() {
+    for (const k of ['quellen', 'tags', 'format']) localStorage.setItem('f-' + k, '[]')
+    const s = document.getElementById('suchfeld')
+    if (s) s.value = ''
+    ladeListe()
+  }
   document.addEventListener('DOMContentLoaded', () => {
     zeigeFilterTab()
     document.body.addEventListener('htmx:afterSwap', (e) => { if (e.target.id === 'materialliste') zeigeFilterTab() })
