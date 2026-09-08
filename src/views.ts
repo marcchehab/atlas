@@ -138,6 +138,14 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
     zeigeFilterTab()
     document.body.addEventListener('htmx:afterSwap', (e) => { if (e.target.id === 'materialliste') zeigeFilterTab() })
     if (!document.getElementById('materialliste')) return
+    // Fachwechsel: gemerkte Filter/Suche gehören zum alten Fach → zurücksetzen
+    const fachSel = document.querySelector('aside select')
+    if (fachSel && localStorage.getItem('f-fach') !== fachSel.value) {
+      localStorage.setItem('f-fach', fachSel.value)
+      for (const k of ['quellen', 'tags', 'format']) localStorage.setItem('f-' + k, '[]')
+      const s = document.getElementById('suchfeld')
+      if (s) s.value = ''
+    }
     const p = new URLSearchParams(location.search)
     if (p.has('quelle') || p.has('tag') || p.has('fmt')) { // explizite Filter-URL gewinnt → localStorage nachziehen
       localStorage.setItem('f-quellen', JSON.stringify(p.getAll('quelle')))
