@@ -212,10 +212,92 @@ const MATHEMATIK: LerngebietDef[] = [
   ]],
 ]
 
-const FAECHER: { code: string; name: string; lerngebiete: LerngebietDef[] }[] = [
-  { code: 'informatik-gf', name: 'Informatik (GINF)', lerngebiete: INFORMATIK },
-  { code: 'physik-gf', name: 'Physik (GPHY)', lerngebiete: PHYSIK },
-  { code: 'mathematik-gf', name: 'Mathematik (GMAT)', lerngebiete: MATHEMATIK },
+// Kantonaler Fachlehrplan Aargau, Schwerpunktfach «Informatik und ihre Anwendungen»
+// (ab Schuljahr 2027/28), Kapitel 5 «Lerngebiete und fachliche Kompetenzen».
+// Überfachliche Marker ((ID), (WP), (PB), (BNE)) wie oben weggelassen.
+const INFORMATIK_SPF_AG: LerngebietDef[] = [
+  [1, 'Algorithmen und Programmierung', [
+    ['1.1', 'Programmierkonzepte', [
+      'grundlegende Programmierkonzepte (z.B. Kontrollstrukturen, Variablen, Funktionen) kompetent anwenden',
+      'Programmierkonzepte und -paradigmen (z.B. Objektorientierung, Modularisierung, Rekursion) nennen, unterscheiden, vergleichen und anwenden',
+      'geeignete Datenstrukturen zur Implementierung von Programmen auswählen und einsetzen',
+    ]],
+    ['1.2', 'Algorithmik', [
+      'gegebene Algorithmen analysieren und beurteilen',
+      'algorithmische Lösungen für konkrete Problemstellungen entwickeln',
+      'klassische algorithmische Strategien (z.B. Greedy, Teile-und-Herrsche, Backtracking) für den Entwurf eigener Lösungen einbeziehen',
+    ]],
+    ['1.3', 'Theoretische Informatik', [
+      'Algorithmen auf ihre Laufzeitkomplexität untersuchen',
+      'Grenzen der Automatisierung auf Basis grundlegender Konzepte der Berechenbarkeitstheorie (z.B. Turingmaschine, endliche Automaten, formale Sprachen) einschätzen',
+    ]],
+    ['1.4', 'Technische Grundlagen', [
+      'die technischen Hintergründe ausgewählter Themenbereiche (z.B. Datenspeicherung, Netzwerktechnik, Microcontroller, Sensorik) erklären',
+      'technisches Grundwissen gezielt einsetzen, bspw. zur Auswahl geeigneter Software, Geräte bzw. Bauteile oder zur Beurteilung von Anwendungsgebiet, Leistungsfähigkeit oder Sicherheit eines Geräts bzw. Systems',
+    ]],
+    ['1.5', 'Software-Engineering', [
+      'eigene Softwareprojekte planen, durchführen und auswerten, ggf. in Teams',
+      'Projektsteuerungskonzepte (z.B. Wasserfallmodell, iterativ, test-driven, agile) unterscheiden, erklären und zielgerichtet anwenden',
+      'übliche Methoden der Softwareindustrie (z.B. unit testing, version control, AI-agents) gezielt auswählen und für eigene Projekte einsetzen',
+    ]],
+  ]],
+  [2, 'Informationen, Daten und Modelle', [
+    ['2.1', 'Daten', [
+      'Organisationsformen von Daten unterscheiden und vergleichen (z.B. Kosten, Aufwand, Vor- und Nachteile)',
+      'eine passende Organisationsform für konkrete Datenverarbeitungsvorhaben wählen und einsetzen',
+      'Datensätze selektieren, aufbereiten und bereinigen',
+      'ausgewählte Aspekte von Datensicherheit und Verschlüsselung in realen Anwendungen untersuchen',
+    ]],
+    ['2.2', 'Modelle', [
+      'Bedeutung von und Unterschiede zwischen Daten bzw. Information diskutieren',
+      'reale Sachverhalte, Informationen und Interaktionen in virtuelle Modelle (z.B. Variablen, Funktionen, Objekte, Entitäten) überführen',
+      'Zweck, Vor- und Nachteile sowie Grenzen informatischer Modellierung diskutieren',
+    ]],
+    ['2.3', 'Künstliche Intelligenz', [
+      'verschiedene Herangehensweisen an die automatisierte Verarbeitung von Daten (insb. klassische KI vs. maschinelles Lernen) unterscheiden und vergleichen',
+      'wesentliche Mechanismen und Problematiken des maschinellen Lernens erklären (z.B. Generalisierung, Backpropagation, Gradient Descent, Bias, Overfitting)',
+      'ein selbstlernendes System anhand beispielhafter Daten trainieren und die Resultate evaluieren',
+      'die Verarbeitung von Information im Kontext moderner KI-Systeme diskutieren',
+    ]],
+  ]],
+  [3, 'Anwendungen der Informatik', [
+    ['3.1', 'Gegebene Anwendungen', [
+      'sich einen Überblick über Anwendungen zu einem spezifischen Fach- bzw. Themengebiet verschaffen',
+      'vertiefte Einblicke in ausgewählte Anwendungen gewinnen und als Grundlage für weitere Recherchen oder praktische Umsetzungen nutzen',
+      'funktionale und thematische Kernaspekte ausgewählter Anwendungen identifizieren',
+      'zukünftige Entwicklungen von Anwendungen diskutieren',
+    ]],
+    ['3.2', 'Theoretische Hintergründe', [
+      'anwendungs- bzw. fachspezifische theoretische und technische Hintergründe identifizieren und für die Beurteilung von Anwendungen einsetzen',
+      'Bezüge zwischen einer bestimmten Anwendung und zugrundeliegender Informatiktheorie herstellen',
+      'die Rolle der Informatik in Bezug auf eine bestimmte Anwendung spezifizieren',
+    ]],
+    ['3.3', 'Praktische Umsetzung', [
+      'anwendungsspezifische Anforderungen an zugehörige Daten identifizieren',
+      'angemessene Daten beschaffen, produzieren und/oder aufbereiten',
+      'ein Projekt im Kontext des behandelten Anwendungsbereichs umsetzen oder anpassen',
+      'aus dem Projekt angemessene Erkenntnisse ableiten und kritisch evaluieren',
+    ]],
+  ]],
+  [4, 'Informatik/Technologie und Gesellschaft', [
+    ['4.1', 'Wissenschaftsmethodik', [
+      'wissenschaftlichen Erkenntnisgewinn als Wechselspiel zwischen Evidenz und Theorie erklären',
+      'die Rolle von Informatikanwendungen im Kontext des wissenschaftlichen Erkenntnisgewinns abschätzen',
+      'Simulationen und Modelle kritisch bewerten sowie Unsicherheiten und Grenzen erkennen',
+    ]],
+    ['4.2', 'Auswirkungen von Digitalität', [
+      'sich kritisch mit den Auswirkungen der Digitalisierung auf Gesellschaft, Wissenschaft und persönliches Leben auseinandersetzen',
+      'die Chancen und Gefahren ausgewählter digitaler Innovationen in Bezug auf Aspekte wie Effizienz, Ressourcenverbrauch, Skalierungseffekte, Privatsphäre, Datensicherheit, persönliche und gesellschaftliche Entwicklung beurteilen',
+      'aktuelle Entwicklungen der Informationsgesellschaft (z.B. Künstliche Intelligenz, Quantencomputer, Bionik, Blockchain) erkennen und hinterfragen',
+    ]],
+  ]],
+]
+
+const FAECHER: { code: string; name: string; lerngebiete: LerngebietDef[]; lehrplanUrl: string | null }[] = [
+  { code: 'informatik-gf', name: 'Informatik (GINF)', lerngebiete: INFORMATIK, lehrplanUrl: LEHRPLAN_URL },
+  { code: 'informatik-spf-ag', name: 'Informatik und ihre Anwendungen (SPF, Kanton AG)', lerngebiete: INFORMATIK_SPF_AG, lehrplanUrl: 'https://www.ag.ch/de/medien/medienmitteilungen?mm=aargauer-gymnasium-ab-2027-28-neu-aufgestellt-8398f540-efa7-48f9-bdc3-1623bd0e47ad_de' },
+  { code: 'physik-gf', name: 'Physik (GPHY)', lerngebiete: PHYSIK, lehrplanUrl: LEHRPLAN_URL },
+  { code: 'mathematik-gf', name: 'Mathematik (GMAT)', lerngebiete: MATHEMATIK, lehrplanUrl: LEHRPLAN_URL },
 ]
 
 const TAGS = ['python', 'java', 'robotik', 'blender', 'spielerisch', 'formell', 'unplugged', 'arbeitsblatt', 'projekt', 'theorie', 'experiment', 'simulation', 'video']
@@ -225,8 +307,8 @@ async function seed() {
   for (const def of FAECHER) {
     const fach = await prisma.fach.upsert({
       where: { code: def.code },
-      create: { code: def.code, name: def.name, lehrplanUrl: LEHRPLAN_URL },
-      update: { name: def.name, lehrplanUrl: LEHRPLAN_URL },
+      create: { code: def.code, name: def.name, lehrplanUrl: def.lehrplanUrl },
+      update: { name: def.name, lehrplanUrl: def.lehrplanUrl },
     })
     let nKomp = 0
     for (const [nummer, name, teilgebiete] of def.lerngebiete) {

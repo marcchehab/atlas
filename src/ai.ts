@@ -23,7 +23,7 @@ export async function klassifiziere(
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) return mockKlassifikation(text, optionen, tagNamen)
 
-  const prompt = `Du klassifizierst Unterrichtsmaterial für Schweizer Gymnasien nach dem Rahmenlehrplan 2024.
+  const prompt = `Du klassifizierst Unterrichtsmaterial für Schweizer Gymnasien nach Lehrplänen (Rahmenlehrplan 2024 sowie kantonale Fachlehrpläne, z.B. Schwerpunktfächer).
 
 Lehrplan-Raster (T… = ganzes Teilgebiet, K… = einzelne Kompetenz):
 ${optionen.map((o) => `${o.code}: ${o.label}`).join('\n')}

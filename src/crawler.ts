@@ -30,11 +30,14 @@ interface KlassifikationsKontext {
 
 // Codes sind Fach-qualifiziert («T:physik-gf:2.1», «K:informatik-gf:1.2.1»), weil
 // Teilgebiet-/Kompetenz-Codes («1.1» …) pro Fach vergeben werden und sonst kollidieren.
-// Ein Fach-Hinweis der Melder:in schränkt das Raster aufs eine Fach ein.
+// Ein Fach-Hinweis der Melder:in schränkt das Raster auf die Fach-Familie ein: «informatik-gf»
+// umfasst alle «informatik-*»-Lehrpläne (Grundlagenfach + kantonale Schwerpunktfächer),
+// damit Material auch dem SPF zugeordnet wird, wenn jemand «Informatik» gewählt hat.
 async function ladeKontext(fachCode?: string | null) {
   const include = { kompetenzen: true, lerngebiet: { include: { fach: true } } } as const
+  const familie = fachCode?.split('-')[0]
   let teilgebiete = await prisma.teilgebiet.findMany({
-    where: fachCode ? { lerngebiet: { fach: { code: fachCode } } } : {},
+    where: familie ? { lerngebiet: { fach: { code: { startsWith: `${familie}-` } } } } : {},
     include,
   })
   if (teilgebiete.length === 0 && fachCode) teilgebiete = await prisma.teilgebiet.findMany({ include }) // unbekannter Hinweis → alle Fächer
