@@ -133,16 +133,18 @@ export async function flushTagVorschlaege(max = 5): Promise<void> {
 // könnten schlicht hinter dem Deckel liegen.
 async function raeumeAuf(quelleId: number, gesehen: Set<string>, gedeckelt: boolean): Promise<string> {
   if (gedeckelt) return ''
-  await prisma.material.updateMany({ where: { quelleId, url: { in: [...gesehen] } }, data: { fehlCounter: 0 } })
-  const verschwunden = await prisma.material.findMany({ where: { quelleId, url: { notIn: [...gesehen] } } })
+  // URL-Mengen nicht als in/notIn in die Query — SQLite-Parameterlimit (~999) lässt
+  // grosse Quellen sonst am notIn scheitern; stattdessen alle Materialien laden und in JS filtern
+  const alle = await prisma.material.findMany({ where: { quelleId } })
+  const da = alle.filter((m) => gesehen.has(m.url))
+  for (let i = 0; i < da.length; i += 500) {
+    await prisma.material.updateMany({ where: { id: { in: da.slice(i, i + 500).map((m) => m.id) } }, data: { fehlCounter: 0 } })
+  }
+  const verschwunden = alle.filter((m) => !gesehen.has(m.url))
   let umzuege = 0
   let verwaist = 0
   for (const alt of verschwunden) {
-    const neu = alt.contentHash
-      ? await prisma.material.findFirst({
-          where: { quelleId, url: { in: [...gesehen] }, contentHash: alt.contentHash, id: { not: alt.id } },
-        })
-      : null
+    const neu = alt.contentHash ? (da.find((m) => m.contentHash === alt.contentHash && m.id !== alt.id) ?? null) : null
     if (neu) {
       // Votes zügeln (Konflikt = User hat beide gevotet → alten Vote verwerfen)
       const votes = await prisma.upvote.findMany({ where: { materialId: alt.id } })
