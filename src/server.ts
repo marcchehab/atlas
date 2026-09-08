@@ -558,7 +558,7 @@ app.get('/melden', async (req, res) => {
   res.send(layout('Quelle melden', side, body, user))
 })
 
-const MELDE_LIMIT = 20 // Quellen pro Konto und 24h — Kostenbremse
+const MELDE_LIMIT = Number(process.env.MELDE_LIMIT ?? 20) // Quellen pro Konto und 24h — Kostenbremse; 0 = aus
 
 app.post('/melden', async (req, res) => {
   const user = await aktuellerUser(req)
@@ -567,7 +567,7 @@ app.post('/melden', async (req, res) => {
   const gemeldet24h = await prisma.quelle.count({
     where: { melderId: user.id, createdAt: { gt: new Date(Date.now() - 24 * 3600 * 1000) } },
   })
-  if (gemeldet24h >= MELDE_LIMIT) {
+  if (MELDE_LIMIT > 0 && gemeldet24h >= MELDE_LIMIT) {
     return res.status(429).send(layout('Limit erreicht', side, `<h1>Tageslimit erreicht</h1>
 <p>Du hast in den letzten 24 Stunden ${MELDE_LIMIT} Quellen gemeldet — mehr geht pro Tag nicht (jede Quelle erzeugt dauerhafte Crawl- und AI-Last). Morgen geht's weiter; wenn du wirklich mehr brauchst, melde dich bei uns.</p>`, user))
   }
@@ -602,7 +602,7 @@ app.post('/melden', async (req, res) => {
   const quelle = await prisma.quelle.create({
     data: { url, typ: erkenneTyp(url), fach: String(req.body.fach || '') || null, melderId: user.id },
   })
-  if (gemeldet24h + 1 === MELDE_LIMIT) {
+  if (MELDE_LIMIT > 0 && gemeldet24h + 1 === MELDE_LIMIT) {
     // Genau beim Erreichen des Limits: Admin informieren (einmalig pro Schub)
     const voll = await prisma.user.findUnique({ where: { id: user.id } })
     sendeMail(
