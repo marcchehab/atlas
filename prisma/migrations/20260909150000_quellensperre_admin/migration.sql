@@ -1,0 +1,1 @@
+ALTER TABLE "QuellenSperre" ADD COLUMN "vonAdmin" BOOLEAN NOT NULL DEFAULT false;

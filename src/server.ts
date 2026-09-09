@@ -651,7 +651,15 @@ app.post('/melden', async (req, res) => {
   if (existiert) {
     return res.send(layout('Schon vorhanden', side, `<p>Diese Quelle ist schon gemeldet${existiert.titel ? `: <strong>${esc(existiert.titel)}</strong>` : ''}.</p><p><a href="/">Zur Übersicht</a></p>`, user))
   }
-  await prisma.quellenSperre.deleteMany({ where: { url } }) // manuelles Melden hebt die Sync-Sperre auf
+  // Admin-Sperre gilt für die ganze Domain; die blosse Sync-Sperre hebt manuelles Melden auf
+  const host = new URL(url).hostname.replace(/^www\./, '')
+  const sperren = await prisma.quellenSperre.findMany({ where: { vonAdmin: true } })
+  if (sperren.some((s) => { try { return new URL(s.url).hostname.replace(/^www\./, '') === host } catch { return false } })) {
+    const side = await baueSidebar(await aktiverLehrplan(req), undefined, user)
+    return res.status(403).send(layout('Quelle gesperrt', side, `<h1>Quelle gesperrt</h1>
+<p><code>${esc(host)}</code> wurde von einem Admin gesperrt und kann nicht gemeldet werden.</p><p><a href="/melden">Zurück</a></p>`, user))
+  }
+  await prisma.quellenSperre.deleteMany({ where: { url } })
   const quelle = await prisma.quelle.create({
     data: { url, typ: erkenneTyp(url), fach: String(req.body.fach || '') || null, melderId: user.id },
   })
@@ -819,7 +827,8 @@ app.post('/quelle/:id/loeschen', async (req, res) => {
   if (!quelle) return res.status(404).send('Quelle nicht gefunden')
   if (!user.istAdmin && quelle.melderId !== user.id) return res.status(403).send('Nur eigene Quellen.')
   await prisma.quelle.delete({ where: { id } })
-  await prisma.quellenSperre.upsert({ where: { url: quelle.url }, create: { url: quelle.url }, update: {} }) // Sync soll sie nicht wiederbeleben
+  // Sync soll sie nicht wiederbeleben; Admin-Löschung sperrt zusätzlich die Domain fürs Melden
+  await prisma.quellenSperre.upsert({ where: { url: quelle.url }, create: { url: quelle.url, vonAdmin: user.istAdmin }, update: { vonAdmin: user.istAdmin } })
   await fs.rm(path.join(process.cwd(), 'data', 'git', String(id)), { recursive: true, force: true })
   if (req.headers['hx-request']) return res.send(await quellenListe(user))
   res.redirect('/quellen')

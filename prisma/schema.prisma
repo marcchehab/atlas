@@ -178,8 +178,10 @@ model TagVote {
 }
 
 // Gelöschte Quellen: der Verzeichnis-Sync soll sie nicht wieder anlegen.
-// Manuelles Neu-Melden hebt die Sperre auf.
+// Manuelles Neu-Melden hebt die Sperre auf — ausser vonAdmin: dann ist die ganze
+// Domain gesperrt (Spam-/Müllquellen wie teacherspayteachers.com).
 model QuellenSperre {
   url      String   @id
+  vonAdmin Boolean  @default(false)
   erstellt DateTime @default(now())
 }
