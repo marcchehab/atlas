@@ -7,6 +7,7 @@ import { crawlQuelle } from './crawler.js'
 import * as auth from './auth.js'
 import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
+import { SCORE_PROMPT, SCORE_BAENDER } from './ai.js'
 import { layout, esc, kürze, sidebar, materialKarte, voteButtons, loginSeite, filterLeiste, tagVorschlagChip, quellenKey, MaterialKarte, TagVorschlag, FilterChip, BASE_URL, tgPfad, koPfad, grossErst } from './views.js'
 
 const app = express()
@@ -364,7 +365,7 @@ app.get('/sitemap.xml', async (_req, res) => {
   const faecher = await prisma.fach.findMany({
     include: { lehrplaene: { include: { lerngebiete: { include: { teilgebiete: { include: { kompetenzen: true } } } } } } },
   })
-  const pfade = ['/', '/quellen']
+  const pfade = ['/', '/quellen', '/sortierung']
   for (const f of faecher) {
     pfade.push(`/fach/${f.code}`)
     for (const lp of f.lehrplaene)
@@ -770,6 +771,25 @@ app.get('/quellen', async (req, res) => {
   const body = `<h1>Quellen</h1>
 ${await quellenListe(user)}`
   res.send(layout('Quellen', side, body, user, { pfad: '/quellen', beschreibung: 'Alle Quellen, aus denen Atlas Unterrichtsmaterial für Schweizer Gymnasien sammelt — Websites, Git-Repos und Cloud-Ordner von Lehrpersonen.' }))
+})
+
+// Transparenz: Ranking-Formel, Bänder und der wörtliche Bewertungs-Prompt
+app.get('/sortierung', async (req, res) => {
+  const user = await aktuellerUser(req)
+  const side = await baueSidebar(await aktivesFach(req), undefined, user)
+  const body = `<h1>Wie wird sortiert?</h1>
+<p>Jedes Material bekommt beim Erfassen von der AI einen <strong>AI-Score</strong> von 0 bis 100. Angemeldete Lehrpersonen stimmen ab, jede Netto-Stimme zählt 5 Punkte.
+Sortiert wird nach <strong>AI-Score + 5 × Netto-Stimmen</strong>. Materialien unter 20 werden nicht aufgenommen.</p>
+<h2>Die fünf Bänder</h2>
+<table>
+<tr><th>AI-Score</th><th>Band</th><th></th></tr>
+${SCORE_BAENDER.map(([von, name, kurz], i) => `<tr><td>${von}–${(SCORE_BAENDER[i + 1]?.[0] ?? 101) - 1}</td><td>${esc(name)}</td><td class="meta">${esc(kurz)}</td></tr>`).join('\n')}
+</table>
+<h2>Der Prompt</h2>
+<p class="meta">Wörtlich der Teil des Klassifikations-Prompts, der den AI-Score bestimmt — direkt aus dem Quelltext, damit diese Seite nie veraltet.</p>
+<pre style="white-space:pre-wrap;font-size:.8rem;background:var(--card);border:1px solid var(--rand);border-radius:10px;padding:.9rem 1.1rem">${esc(SCORE_PROMPT)}</pre>
+<p class="meta">Modell: Gemini Flash Lite. Der ganze Code ist offen: <a href="https://github.com/marcchehab/atlas" rel="noopener">github.com/marcchehab/atlas</a>.</p>`
+  res.send(layout('Wie wird sortiert?', side, body, user, { pfad: '/sortierung', beschreibung: 'So sortiert Atlas Unterrichtsmaterial: AI-Score in fünf Bändern plus Stimmen der Community — mit dem vollständigen Bewertungs-Prompt.' }))
 })
 
 // Vote (HTMX): gleicher Pfeil nochmal = zurückziehen, anderer Pfeil = wechseln

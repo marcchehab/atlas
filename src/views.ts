@@ -2,6 +2,7 @@
 // Look angelehnt an Eduskript: Inter (UI), Barlow Condensed (Headings), #f5f5f5, Primärblau.
 
 import fsSync from 'node:fs'
+import { bandName } from './ai.js'
 import pathMod from 'node:path'
 
 // Logo inline statt <img>: so folgt es dem manuellen Theme-Toggle (data-theme) statt nur
@@ -266,6 +267,11 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
   .tag { display: inline-block; background: var(--chip); border-radius: 999px; padding: .05rem .6rem; font-size: .78rem; margin-right: .3rem; color: var(--primary); }
   .tag.ziel { background: var(--chip-ziel); }
   .tag.format { background: transparent; border: 1px solid var(--rand); color: var(--meta); }
+  .aiscore { display: flex; flex-direction: column; align-items: center; color: var(--meta); text-decoration: none; min-width: 3.2rem; padding-top: .15rem; }
+  .aiscore .zahl { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 1.25rem; line-height: 1; }
+  .aiscore .label { font-size: .6rem; letter-spacing: .04em; text-transform: uppercase; }
+  .aiscore:hover { color: var(--fg); text-decoration: none; }
+  .sortinfo { margin-left: auto; text-decoration: none; }
   .voten { display: flex; flex-direction: column; align-items: center; gap: .1rem; }
   .voten .pfeil { border: 1px solid var(--rand); border-radius: 8px; background: var(--card); color: var(--fg); cursor: pointer; padding: .1rem .55rem; font-size: .85rem; line-height: 1.3; font-family: inherit; }
   .voten .pfeil:hover { background: var(--bg); text-decoration: none; }
@@ -469,6 +475,7 @@ export interface MaterialKarte {
   format: string | null
   zuordnungen: { code: string; label: string; href: string }[]
   fachCode: string // Fach-Kontext der Seite — Tag-Links bleiben im Fach
+  aiScore: number // öffentlich «AI-Score» (intern qualityScore)
   score: number
   meinVote: number // +1 | 0 | -1
 }
@@ -546,6 +553,7 @@ export function filterLeiste(quellen: FilterChip[], tags: FilterChip[], formate:
 <div class="fkats">
 ${kategorien.map(([k, name, werte]) => `<button class="fkat${werte.some((w) => w.aktiv) ? ' mit-punkt' : ''}" data-k="${k}" onclick="fkatWaehlen('${k}')">${chevron}${name}<span class="punkt"></span></button>`).join('')}
 <button class="fkat freset" onclick="filterReset()" title="Alle Filter zurücksetzen">reset</button>
+<a class="fkat sortinfo" href="/sortierung">Wie wird sortiert?</a>
 </div>
 ${kategorien
   .map(
@@ -570,6 +578,7 @@ export function materialKarte(m: MaterialKarte, eingeloggt: boolean, admin = fal
       <div>${m.format ? `<span class="tag format">${esc(m.format)}</span>` : ''}${m.tags.map((t) => `<a class="tag" href="/suche?tag=${encodeURIComponent(t)}&fach=${encodeURIComponent(m.fachCode)}">${esc(t)}</a>`).join('')}
       ${m.zuordnungen.map((z) => `<a class="tag ziel" href="${z.href}" title="${esc(z.label)}">${esc(z.code)}</a>`).join('')}</div>
     </div>
+    <a class="aiscore" href="/sortierung" title="AI-Score: ${m.aiScore} · ${bandName(m.aiScore)} — wie wird sortiert?"><span class="zahl">${m.aiScore}</span><span class="label">AI-Score</span></a>
     <div style="display:flex;flex-direction:column;gap:.4rem;align-items:center">
       ${voteButtons(m, eingeloggt)}
       ${admin ? `<button class="pfeil" title="Karte ausblenden (Admin)" hx-post="/admin/material/${m.id}/verstecken" hx-target="closest .karte" hx-swap="outerHTML" hx-confirm="Karte ausblenden?">✕</button>` : ''}
