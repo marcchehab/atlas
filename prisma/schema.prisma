@@ -24,7 +24,7 @@ model Quelle {
   id            Int        @id @default(autoincrement())
   url           String     @unique // normalisiert
   typ           String // WEBSITE | GIT | CLOUD
-  fach          String? // optionaler Hinweis der Melder:in
+  fach          String? // optionaler Hinweis der Melder:in (Fach-Code, z.B. "informatik")
   titel         String?
   beschreibung  String?
   qualityScore  Int? // 0–100 von der AI; <20 = nicht aufgenommen
@@ -38,25 +38,36 @@ model Quelle {
   materialien   Material[]
 }
 
-// Lehrplan-Hierarchie: Fach → Lerngebiet → Teilgebiet → Kompetenz (feinste Ebene).
-// Admins sollen pro Fach einen Lehrplan mit diesen Ebenen erfassen können.
+// Fach (Informatik) ist die Navigations- und Melde-Einheit; ein Fach hat einen oder mehrere
+// Lehrpläne (RLP 2024: Grundlagenfach, Ergänzungsfach, Schwerpunktfach). Die Hierarchie
+// darunter: Lehrplan → Lerngebiet → Teilgebiet → Kompetenz (feinste Ebene).
+// Admins sollen pro Fach Lehrpläne mit diesen Ebenen erfassen können.
 model Fach {
+  id         Int        @id @default(autoincrement())
+  code       String     @unique // z.B. "informatik"
+  name       String // z.B. "Informatik"
+  lehrplaene Lehrplan[]
+}
+
+model Lehrplan {
   id          Int          @id @default(autoincrement())
-  code        String       @unique // z.B. "informatik-gf"
-  name        String // z.B. "Informatik (GINF)"
-  lehrplanUrl String? // Link aufs Original (RLP-PDF)
+  code        String       @unique // z.B. "informatik-gf" — steckt in URLs und AI-Zuordnungscodes
+  name        String // z.B. "Grundlagenfach"
+  url         String? // Link aufs Original (RLP-PDF)
+  fach        Fach         @relation(fields: [fachId], references: [id], onDelete: Cascade)
+  fachId      Int
   lerngebiete Lerngebiet[]
 }
 
 model Lerngebiet {
   id          Int          @id @default(autoincrement())
-  fach        Fach         @relation(fields: [fachId], references: [id], onDelete: Cascade)
-  fachId      Int
+  lehrplan    Lehrplan     @relation(fields: [lehrplanId], references: [id], onDelete: Cascade)
+  lehrplanId  Int
   nummer      Int // "1"
   name        String // "Algorithmen und Programme"
   teilgebiete Teilgebiet[]
 
-  @@unique([fachId, nummer])
+  @@unique([lehrplanId, nummer])
 }
 
 model Teilgebiet {

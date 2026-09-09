@@ -24,7 +24,7 @@ async function aktuellerUser(req: express.Request): Promise<Nutzer | null> {
   return u ?? null
 }
 
-const STANDARD_FACH = 'informatik-gf'
+const STANDARD_FACH = 'informatik'
 
 // Zuletzt besuchtes Fach im Cookie — Nicht-Fach-Seiten (Admin, Quellen, Suche …)
 // behalten so den Fach-Kontext in der Sidebar statt auf Informatik zurückzufallen.
@@ -37,21 +37,28 @@ async function aktivesFach(req: express.Request): Promise<string> {
   return STANDARD_FACH
 }
 
+// Sidebar: Fach-Dropdown, darunter die Lehrplan-Bäume des Fachs (GF, EF, …).
+// aktiv markiert Teilgebiet/Kompetenz als "<lehrplan>:T1.2" bzw. "<lehrplan>:K1.2.1".
 async function baueSidebar(fachCode: string, aktiv: string | undefined, user: Nutzer | null): Promise<string> {
   const faecher = await prisma.fach.findMany({ orderBy: { name: 'asc' }, select: { code: true, name: true } })
   const fach = await prisma.fach.findUnique({
     where: { code: fachCode },
     include: {
-      lerngebiete: {
-        orderBy: { nummer: 'asc' },
+      lehrplaene: {
+        orderBy: { id: 'asc' },
         include: {
-          teilgebiete: {
-            orderBy: { code: 'asc' },
+          lerngebiete: {
+            orderBy: { nummer: 'asc' },
             include: {
-              _count: { select: { zuordnungen: { where: { material: { fehlCounter: { lt: 3 } } } } } },
-              kompetenzen: {
+              teilgebiete: {
                 orderBy: { code: 'asc' },
-                include: { _count: { select: { zuordnungen: { where: { material: { fehlCounter: { lt: 3 } } } } } } },
+                include: {
+                  _count: { select: { zuordnungen: { where: { material: { fehlCounter: { lt: 3 } } } } } },
+                  kompetenzen: {
+                    orderBy: { code: 'asc' },
+                    include: { _count: { select: { zuordnungen: { where: { material: { fehlCounter: { lt: 3 } } } } } } },
+                  },
+                },
               },
             },
           },
@@ -59,19 +66,23 @@ async function baueSidebar(fachCode: string, aktiv: string | undefined, user: Nu
       },
     },
   })
-  if (!fach) return sidebar({ faecher, fachCode, lehrplanUrl: null, lerngebiete: [], aktiv, user })
+  if (!fach) return sidebar({ faecher, fachCode, lehrplaene: [], aktiv, user })
   return sidebar({
     faecher,
     fachCode,
-    lehrplanUrl: fach.lehrplanUrl,
-    lerngebiete: fach.lerngebiete.map((lg) => ({
-      nummer: lg.nummer,
-      name: lg.name,
-      teilgebiete: lg.teilgebiete.map((tg) => ({
-        code: tg.code,
-        name: tg.name,
-        anzahl: tg._count.zuordnungen, // teilgebietId ist auch bei Kompetenz-Zuordnung gesetzt → Gesamtzahl
-        kompetenzen: tg.kompetenzen.map((ko) => ({ code: ko.code, text: ko.text, anzahl: ko._count.zuordnungen })),
+    lehrplaene: fach.lehrplaene.map((lp) => ({
+      code: lp.code,
+      name: lp.name,
+      url: lp.url,
+      lerngebiete: lp.lerngebiete.map((lg) => ({
+        nummer: lg.nummer,
+        name: lg.name,
+        teilgebiete: lg.teilgebiete.map((tg) => ({
+          code: tg.code,
+          name: tg.name,
+          anzahl: tg._count.zuordnungen, // teilgebietId ist auch bei Kompetenz-Zuordnung gesetzt → Gesamtzahl
+          kompetenzen: tg.kompetenzen.map((ko) => ({ code: ko.code, text: ko.text, anzahl: ko._count.zuordnungen })),
+        })),
       })),
     })),
     aktiv,
@@ -84,7 +95,7 @@ async function ladeMaterialKarten(where: object, userId: number | null, fachCode
     where: { ...where, fehlCounter: { lt: 3 }, versteckt: false, qualityScore: { gte: 20 }, quelle: { todesCounter: { lt: 3 } } },
     include: {
       tags: { include: { tag: true } },
-      zuordnungen: { include: { teilgebiet: { include: { lerngebiet: { include: { fach: true } } } }, kompetenz: true } },
+      zuordnungen: { include: { teilgebiet: { include: { lerngebiet: { include: { lehrplan: true } } } }, kompetenz: true } },
       upvotes: true,
     },
   })
@@ -96,9 +107,9 @@ async function ladeMaterialKarten(where: object, userId: number | null, fachCode
       zusammenfassung: m.zusammenfassung,
       tags: m.tags.map((t) => t.tag.name),
       format: m.format,
-      // Chips verlinken ins Fach der jeweiligen Zuordnung — nicht ins Fach der Seite
+      // Chips verlinken in den Lehrplan der jeweiligen Zuordnung — nicht ins Fach der Seite
       zuordnungen: m.zuordnungen.map((z) => {
-        const fc = z.teilgebiet.lerngebiet.fach.code
+        const fc = z.teilgebiet.lerngebiet.lehrplan.code
         return z.kompetenz
           ? { code: z.kompetenz.code, label: z.kompetenz.text, href: koPfad(fc, z.kompetenz.code, z.kompetenz.text) }
           : { code: `${z.teilgebiet.code} (ganz)`, label: z.teilgebiet.name, href: tgPfad(fc, z.teilgebiet.code, z.teilgebiet.name) }
@@ -275,8 +286,17 @@ async function nichtGefunden(req: express.Request, res: express.Response, was: s
 
 const SICHTBAR = { fehlCounter: { lt: 3 }, versteckt: false, qualityScore: { gte: 20 }, quelle: { todesCounter: { lt: 3 } } } as const
 
-// Materialien eines Fachs: mindestens eine Zuordnung in dessen Lehrplan
-const inFach = (code: string) => ({ zuordnungen: { some: { teilgebiet: { lerngebiet: { fach: { code } } } } } })
+// Materialien eines Fachs: mindestens eine Zuordnung in einem seiner Lehrpläne
+const inFach = (code: string) => ({ zuordnungen: { some: { teilgebiet: { lerngebiet: { lehrplan: { fach: { code } } } } } } })
+const RLP_URL = 'https://edudoc.ch/record/232281/files/Rahmenlehrplan-maturitatsschulen.pdf'
+
+// Alte URLs trugen den Lehrplan-Code an Fach-Stelle (/fach/informatik-gf) — auf das Fach umleiten
+async function fachOderLehrplan(code: string) {
+  const fach = await prisma.fach.findUnique({ where: { code } })
+  if (fach) return { fach, umleiten: false }
+  const lp = await prisma.lehrplan.findUnique({ where: { code }, include: { fach: true } })
+  return lp ? { fach: lp.fach, umleiten: true } : { fach: null, umleiten: false }
+}
 
 // Startseite: Landingpage für «Unterrichtsmaterial Gymnasium» — echter Inhalt statt Redirect
 app.get('/', async (req, res) => {
@@ -285,7 +305,7 @@ app.get('/', async (req, res) => {
   const [materialien, quellen, faecher] = await Promise.all([
     prisma.material.count({ where: SICHTBAR }),
     prisma.quelle.count({ where: { todesCounter: { lt: 3 }, materialien: { some: { qualityScore: { gte: 20 }, versteckt: false, fehlCounter: { lt: 3 } } } } }),
-    prisma.fach.findMany({ orderBy: { name: 'asc' }, include: { lerngebiete: { orderBy: { nummer: 'asc' }, include: { teilgebiete: { orderBy: { code: 'asc' } } } } } }),
+    prisma.fach.findMany({ orderBy: { name: 'asc' }, include: { lehrplaene: { orderBy: { id: 'asc' }, include: { lerngebiete: { orderBy: { nummer: 'asc' }, include: { teilgebiete: { orderBy: { code: 'asc' } } } } } } } }),
   ])
   const body = `<h1>Unterrichtsmaterial für Schweizer Gymnasien</h1>
 <p>Atlas sammelt frei zugängliches Unterrichtsmaterial von Lehrpersonen für Maturitätsschulen und ordnet es den Lernzielen des <a href="https://edudoc.ch/record/232281/files/Rahmenlehrplan-maturitatsschulen.pdf" rel="noopener">Rahmenlehrplans Maturitätsschulen (EDK 2024)</a> zu — mit Kurzzusammenfassung, Link zur Originalquelle und Bewertungen aus der Community.</p>
@@ -295,7 +315,8 @@ app.get('/', async (req, res) => {
 <h2>Fächer</h2>
 ${faecher.map((f) => `<div class="karte">
 <h3><a href="/fach/${esc(f.code)}">${esc(f.name)}</a></h3>
-<p class="meta">${f.lerngebiete.map((lg) => `${lg.nummer}. ${esc(lg.name)}: ${lg.teilgebiete.map((tg) => `<a href="${tgPfad(f.code, tg.code, tg.name)}">${esc(tg.name)}</a>`).join(' · ')}`).join('<br>')}</p>
+${f.lehrplaene.map((lp) => `${f.lehrplaene.length > 1 ? `<p class="meta"><strong>${esc(lp.name)}</strong></p>` : ''}
+<p class="meta">${lp.lerngebiete.map((lg) => `${lg.nummer}. ${esc(lg.name)}: ${lg.teilgebiete.map((tg) => `<a href="${tgPfad(lp.code, tg.code, tg.name)}">${esc(tg.name)}</a>`).join(' · ')}`).join('<br>')}</p>`).join('')}
 </div>`).join('\n')}<h2>So funktioniert Atlas</h2>
 <ol>
 <li><strong>Melden:</strong> Du meldest nur einen Link auf eine öffentliche Quelle — eine Material-Website, ein Git-Repo oder einen Cloud-Ordner. Sie muss nicht von dir sein.</li>
@@ -338,16 +359,17 @@ Sitemap: ${BASE_URL}/sitemap.xml
 
 app.get('/sitemap.xml', async (_req, res) => {
   const faecher = await prisma.fach.findMany({
-    include: { lerngebiete: { include: { teilgebiete: { include: { kompetenzen: true } } } } },
+    include: { lehrplaene: { include: { lerngebiete: { include: { teilgebiete: { include: { kompetenzen: true } } } } } } },
   })
   const pfade = ['/', '/quellen']
   for (const f of faecher) {
     pfade.push(`/fach/${f.code}`)
-    for (const lg of f.lerngebiete)
-      for (const tg of lg.teilgebiete) {
-        pfade.push(tgPfad(f.code, tg.code, tg.name))
-        for (const ko of tg.kompetenzen) pfade.push(koPfad(f.code, ko.code, ko.text))
-      }
+    for (const lp of f.lehrplaene)
+      for (const lg of lp.lerngebiete)
+        for (const tg of lg.teilgebiete) {
+          pfade.push(tgPfad(lp.code, tg.code, tg.name))
+          for (const ko of tg.kompetenzen) pfade.push(koPfad(lp.code, ko.code, ko.text))
+        }
   }
   res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -359,8 +381,9 @@ ${pfade.map((p) => `<url><loc>${esc(BASE_URL + p)}</loc></url>`).join('\n')}
 // Fach-Übersicht
 app.get('/fach/:fach', async (req, res) => {
   const user = await aktuellerUser(req)
-  const fach = await prisma.fach.findUnique({ where: { code: req.params.fach } })
+  const { fach, umleiten } = await fachOderLehrplan(req.params.fach)
   if (!fach) return nichtGefunden(req, res, 'Fach', user)
+  if (umleiten) return res.redirect(301, `/fach/${fach.code}`)
   merkeFach(res, fach.code)
   const side = await baueSidebar(fach.code, undefined, user)
   const basis = `/fach/${fach.code}/liste`
@@ -369,7 +392,7 @@ app.get('/fach/:fach', async (req, res) => {
     listeFragment(inFach(fach.code), basis, req, user, fach.code),
   ])
   const body = `<h1>${esc(fach.name)}</h1>
-<p>Materialien geordnet nach dem <a href="${esc(fach.lehrplanUrl ?? '#')}" rel="noopener">Rahmenlehrplan Maturitätsschulen (EDK 2024)</a>.
+<p>Materialien geordnet nach dem <a href="${RLP_URL}" rel="noopener">Rahmenlehrplan Maturitätsschulen (EDK 2024)</a>.
 Links ein Teilgebiet oder eine Kompetenz wählen — oder direkt suchen.</p>
 <form class="suche" onsubmit="ladeListe();return false"><input type="search" id="suchfeld" oninput="sucheTipp()" value="${esc(String(req.query.q ?? ''))}" placeholder="Volltextsuche, z.B. binärsystem arbeitsblatt"><button>Suchen</button></form>
 <h2>Alle Materialien (${anzahl})</h2>
@@ -380,55 +403,71 @@ Links ein Teilgebiet oder eine Kompetenz wählen — oder direkt suchen.</p>
   }))
 })
 
-// HTMX-Fragment: gefilterte Materialliste in 50er-Batches (Endlos-Scroll).
-// Kontext optional per ?t= (Teilgebiet-Code) oder ?k= (Kompetenz-Code).
+// HTMX-Fragment: gefilterte Materialliste in 50er-Batches (Endlos-Scroll) — ganzes Fach.
 app.get('/fach/:fach/liste', async (req, res) => {
   const user = await aktuellerUser(req)
-  const fach = await prisma.fach.findUnique({ where: { code: req.params.fach } })
+  const { fach } = await fachOderLehrplan(req.params.fach)
   if (!fach) return res.status(404).send('Fach nicht gefunden')
+  res.send(await listeFragment(inFach(fach.code), `/fach/${fach.code}/liste`, req, user, fach.code))
+})
+
+// Alte Teilgebiet-/Lernziel-URLs hingen am Lehrplan-Code unter /fach/ — dauerhaft umleiten
+app.get(['/fach/:lp/t/:code', '/fach/:lp/k/:code'], (req, res) => {
+  res.redirect(301, req.originalUrl.replace(/^\/fach\//, '/lehrplan/'))
+})
+
+// HTMX-Fragment innerhalb eines Lehrplans: ?t= (Teilgebiet-Code) oder ?k= (Kompetenz-Code)
+app.get('/lehrplan/:lp/liste', async (req, res) => {
+  const user = await aktuellerUser(req)
+  const lp = await prisma.lehrplan.findUnique({ where: { code: req.params.lp }, include: { fach: true } })
+  if (!lp) return res.status(404).send('Lehrplan nicht gefunden')
   const t = String(req.query.t ?? '')
   const k = String(req.query.k ?? '')
-  let where: object = inFach(fach.code)
-  let kontext = ''
+  let where: object
+  let kontext: string
   if (k) {
-    const ko = await prisma.kompetenz.findFirst({ where: { code: k, teilgebiet: { lerngebiet: { fach: { code: fach.code } } } } })
+    const ko = await prisma.kompetenz.findFirst({ where: { code: k, teilgebiet: { lerngebiet: { lehrplanId: lp.id } } } })
     if (!ko) return res.status(404).send('Lernziel nicht gefunden')
     where = { zuordnungen: { some: { kompetenzId: ko.id } } }
     kontext = `?k=${encodeURIComponent(k)}`
   } else if (t) {
-    const tg = await prisma.teilgebiet.findFirst({ where: { code: t, lerngebiet: { fach: { code: fach.code } } } })
+    const tg = await prisma.teilgebiet.findFirst({ where: { code: t, lerngebiet: { lehrplanId: lp.id } } })
     if (!tg) return res.status(404).send('Teilgebiet nicht gefunden')
     where = { zuordnungen: { some: { teilgebietId: tg.id } } }
     kontext = `?t=${encodeURIComponent(t)}`
+  } else {
+    where = { zuordnungen: { some: { teilgebiet: { lerngebiet: { lehrplanId: lp.id } } } } }
+    kontext = ''
   }
-  res.send(await listeFragment(where, `/fach/${fach.code}/liste${kontext}`, req, user, fach.code))
+  res.send(await listeFragment(where, `/lehrplan/${lp.code}/liste${kontext}`, req, user, lp.fach.code))
 })
 
 // Teilgebiet: Materialien des Teilgebiets inkl. seiner Kompetenzen.
 // URL-Param ist "1.2" oder "1.2-slug…" — Code steht vor dem ersten Bindestrich;
 // alles andere als der kanonische Slug-Pfad wird 301-umgeleitet (eine URL pro Seite).
-app.get('/fach/:fach/t/:code', async (req, res) => {
+app.get('/lehrplan/:lp/t/:code', async (req, res) => {
   const user = await aktuellerUser(req)
   const code = req.params.code.split('-')[0]
   const tg = await prisma.teilgebiet.findFirst({
-    where: { code, lerngebiet: { fach: { code: req.params.fach } } },
-    include: { lerngebiet: { include: { fach: true } }, kompetenzen: { orderBy: { code: 'asc' } } },
+    where: { code, lerngebiet: { lehrplan: { code: req.params.lp } } },
+    include: { lerngebiet: { include: { lehrplan: { include: { fach: true } } } }, kompetenzen: { orderBy: { code: 'asc' } } },
   })
   if (!tg) return nichtGefunden(req, res, 'Teilgebiet', user)
-  merkeFach(res, tg.lerngebiet.fach.code)
-  const fachKurz = tg.lerngebiet.fach.name.replace(/\s*\(.*\)$/, '')
-  const kanonisch = tgPfad(req.params.fach, tg.code, tg.name)
+  const lp = tg.lerngebiet.lehrplan
+  merkeFach(res, lp.fach.code)
+  const fachKurz = lp.fach.name
+  const kanonisch = tgPfad(lp.code, tg.code, tg.name)
   if (req.path !== kanonisch) return res.redirect(301, kanonisch)
-  const side = await baueSidebar(req.params.fach, `T${tg.code}`, user)
+  const side = await baueSidebar(lp.fach.code, `${lp.code}:T${tg.code}`, user)
   const where = { zuordnungen: { some: { teilgebietId: tg.id } } }
-  const basis = `/fach/${req.params.fach}/liste?t=${encodeURIComponent(tg.code)}`
+  const basis = `/lehrplan/${lp.code}/liste?t=${encodeURIComponent(tg.code)}`
   const [anzahl, liste] = await Promise.all([
     prisma.material.count({ where: { ...where, ...SICHTBAR } }),
-    listeFragment(where, basis, req, user, req.params.fach),
+    listeFragment(where, basis, req, user, lp.fach.code),
   ])
   const body = `<h1>${esc(tg.code)} ${esc(tg.name)} – Unterrichtsmaterial</h1>
 <p class="meta">${tg.lerngebiet.nummer}. ${esc(tg.lerngebiet.name)}</p>
-<ul class="meta">${tg.kompetenzen.map((k) => `<li><a href="${koPfad(req.params.fach, k.code, k.text)}">${esc(k.text)}</a></li>`).join('')}</ul>
+<ul class="meta">${tg.kompetenzen.map((k) => `<li><a href="${koPfad(lp.code, k.code, k.text)}">${esc(k.text)}</a></li>`).join('')}</ul>
 <form class="suche" onsubmit="ladeListe();return false"><input type="search" id="suchfeld" oninput="sucheTipp()" value="${esc(String(req.query.q ?? ''))}" placeholder="Volltextsuche in diesem Teilgebiet"><button>Suchen</button></form>
 <div id="materialliste" data-liste="${esc(basis)}">${liste}</div>`
   res.send(layout(`Unterrichtsmaterial ${tg.name} – ${fachKurz} Gymnasium`, side, body, user, {
@@ -438,28 +477,29 @@ app.get('/fach/:fach/t/:code', async (req, res) => {
 })
 
 // Einzelne Kompetenz — Lernziel-Seite, die wichtigste SEO-Landingpage (siehe Teilgebiet-Route zum Slug-Schema)
-app.get('/fach/:fach/k/:code', async (req, res) => {
+app.get('/lehrplan/:lp/k/:code', async (req, res) => {
   const user = await aktuellerUser(req)
   const code = req.params.code.split('-')[0]
   const ko = await prisma.kompetenz.findFirst({
-    where: { code, teilgebiet: { lerngebiet: { fach: { code: req.params.fach } } } },
-    include: { teilgebiet: { include: { lerngebiet: { include: { fach: true } } } } },
+    where: { code, teilgebiet: { lerngebiet: { lehrplan: { code: req.params.lp } } } },
+    include: { teilgebiet: { include: { lerngebiet: { include: { lehrplan: { include: { fach: true } } } } } } },
   })
   if (!ko) return nichtGefunden(req, res, 'Lernziel', user)
-  merkeFach(res, ko.teilgebiet.lerngebiet.fach.code)
-  const kanonisch = koPfad(req.params.fach, ko.code, ko.text)
+  const lp = ko.teilgebiet.lerngebiet.lehrplan
+  merkeFach(res, lp.fach.code)
+  const kanonisch = koPfad(lp.code, ko.code, ko.text)
   if (req.path !== kanonisch) return res.redirect(301, kanonisch)
-  const fachKurz = ko.teilgebiet.lerngebiet.fach.name.replace(/\s*\(.*\)$/, '')
-  const side = await baueSidebar(req.params.fach, `K${ko.code}`, user)
+  const fachKurz = lp.fach.name
+  const side = await baueSidebar(lp.fach.code, `${lp.code}:K${ko.code}`, user)
   const where = { zuordnungen: { some: { kompetenzId: ko.id } } }
-  const basis = `/fach/${req.params.fach}/liste?k=${encodeURIComponent(ko.code)}`
+  const basis = `/lehrplan/${lp.code}/liste?k=${encodeURIComponent(ko.code)}`
   const [anzahl, liste] = await Promise.all([
     prisma.material.count({ where: { ...where, ...SICHTBAR } }),
-    listeFragment(where, basis, req, user, req.params.fach),
+    listeFragment(where, basis, req, user, lp.fach.code),
   ])
   const body = `<h1>${esc(ko.code)} ${esc(grossErst(ko.text))}</h1>
 <p>Unterrichtsmaterial zum Lernziel: Die Maturandinnen und Maturanden können <strong>${esc(ko.text)}</strong>.</p>
-<p class="meta"><a href="${tgPfad(req.params.fach, ko.teilgebiet.code, ko.teilgebiet.name)}">${esc(ko.teilgebiet.code)} ${esc(ko.teilgebiet.name)}</a> · ${ko.teilgebiet.lerngebiet.nummer}. ${esc(ko.teilgebiet.lerngebiet.name)}</p>
+<p class="meta"><a href="${tgPfad(lp.code, ko.teilgebiet.code, ko.teilgebiet.name)}">${esc(ko.teilgebiet.code)} ${esc(ko.teilgebiet.name)}</a> · ${ko.teilgebiet.lerngebiet.nummer}. ${esc(ko.teilgebiet.lerngebiet.name)}</p>
 <form class="suche" onsubmit="ladeListe();return false"><input type="search" id="suchfeld" oninput="sucheTipp()" value="${esc(String(req.query.q ?? ''))}" placeholder="Volltextsuche in diesem Lernziel"><button>Suchen</button></form>
 <div id="materialliste" data-liste="${esc(basis)}">${liste}</div>`
   res.send(layout(`Unterrichtsmaterial: ${grossErst(kürze(ko.text, 60))} – ${fachKurz} Gymnasium`, side, body, user, {
@@ -478,22 +518,25 @@ app.get('/suche', async (req, res) => {
   const suchFach = fachParam ? await prisma.fach.findUnique({ where: { code: fachParam } }) : null
   const fachCode = suchFach?.code ?? (await aktivesFach(req))
   const fachFilter = suchFach ? inFach(suchFach.code) : {}
-  // Bereichs-Kontext (von Teilgebiet-/Lernziel-Seiten): Suche nur innerhalb dieser Zuordnung
+  // Bereichs-Kontext (Lehrplan + Teilgebiet/Lernziel): Suche nur innerhalb dieser Zuordnung
+  const lpParam = String(req.query.lp ?? '').trim()
   const tParam = String(req.query.t ?? '').trim()
   const kParam = String(req.query.k ?? '').trim()
+  const suchLp = lpParam ? await prisma.lehrplan.findUnique({ where: { code: lpParam } }) : null
   let bereich: { label: string; hidden: string } | null = null
   let bereichFilter: object = {}
-  if (suchFach && kParam) {
-    const ko = await prisma.kompetenz.findFirst({ where: { code: kParam, teilgebiet: { lerngebiet: { fach: { code: suchFach.code } } } } })
+  const lpHidden = suchLp ? `<input type="hidden" name="lp" value="${esc(suchLp.code)}">` : ''
+  if (suchLp && kParam) {
+    const ko = await prisma.kompetenz.findFirst({ where: { code: kParam, teilgebiet: { lerngebiet: { lehrplanId: suchLp.id } } } })
     if (ko) {
       bereichFilter = { zuordnungen: { some: { kompetenzId: ko.id } } }
-      bereich = { label: `${ko.code} ${grossErst(kürze(ko.text, 70))}`, hidden: `<input type="hidden" name="k" value="${esc(ko.code)}">` }
+      bereich = { label: `${ko.code} ${grossErst(kürze(ko.text, 70))}`, hidden: `${lpHidden}<input type="hidden" name="k" value="${esc(ko.code)}">` }
     }
-  } else if (suchFach && tParam) {
-    const tg = await prisma.teilgebiet.findFirst({ where: { code: tParam, lerngebiet: { fach: { code: suchFach.code } } } })
+  } else if (suchLp && tParam) {
+    const tg = await prisma.teilgebiet.findFirst({ where: { code: tParam, lerngebiet: { lehrplanId: suchLp.id } } })
     if (tg) {
       bereichFilter = { zuordnungen: { some: { teilgebietId: tg.id } } }
-      bereich = { label: `${tg.code} ${tg.name}`, hidden: `<input type="hidden" name="t" value="${esc(tg.code)}">` }
+      bereich = { label: `${tg.code} ${tg.name}`, hidden: `${lpHidden}<input type="hidden" name="t" value="${esc(tg.code)}">` }
     }
   }
   let karten: MaterialKarte[] = []
@@ -525,7 +568,7 @@ app.get('/suche', async (req, res) => {
       karten = await ladeMaterialKarten({ ...quellFilter, ...fachFilter, ...bereichFilter }, user?.id ?? null, fachCode)
     }
   }
-  const side = await baueSidebar(fachCode, bereich && kParam ? `K${kParam}` : bereich && tParam ? `T${tParam}` : undefined, user)
+  const side = await baueSidebar(fachCode, bereich && kParam ? `${suchLp!.code}:K${kParam}` : bereich && tParam ? `${suchLp!.code}:T${tParam}` : undefined, user)
   const body = `<h1>Suche${suchFach ? ` – ${esc(suchFach.name)}` : ''}</h1>
 ${bereich ? `<p class="meta">Eingeschränkt auf ${esc(bereich.label)}</p>` : ''}
 <form class="suche">${suchFach ? `<input type="hidden" name="fach" value="${esc(suchFach.code)}">` : ''}${bereich?.hidden ?? ''}<input type="search" name="q" value="${esc(q)}" placeholder="Volltextsuche"><button>Suchen</button></form>

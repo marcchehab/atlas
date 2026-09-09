@@ -35,8 +35,9 @@ export function slug(s: string): string {
     .slice(0, 5)
     .join('-')
 }
-export const tgPfad = (fach: string, code: string, name: string) => `/fach/${fach}/t/${code}-${slug(name)}`
-export const koPfad = (fach: string, code: string, text: string) => `/fach/${fach}/k/${code}-${slug(text)}`
+// Teilgebiet-/Kompetenz-Codes («1.2») gelten pro Lehrplan — darum hängen die Seiten am Lehrplan, nicht am Fach.
+export const tgPfad = (lehrplan: string, code: string, name: string) => `/lehrplan/${lehrplan}/t/${code}-${slug(name)}`
+export const koPfad = (lehrplan: string, code: string, text: string) => `/lehrplan/${lehrplan}/k/${code}-${slug(text)}`
 export const grossErst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 export interface SeoDaten {
@@ -247,6 +248,7 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
   aside .by:hover { color: var(--meta); text-decoration: none; }
   aside .untertitel { font-size: .75rem; color: var(--meta); margin-bottom: 1rem; }
   aside select { width: 100%; padding: .4rem; font: inherit; border: 1px solid var(--rand); border-radius: 6px; background: var(--card); color: var(--fg); margin-bottom: 1rem; }
+  .lp { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 1.1rem; color: var(--primary); margin: 1.2rem 0 0; }
   .lg { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: .95rem; margin: .9rem 0 .2rem; }
   .tg, .ko { display: block; border-radius: 6px; padding: .15rem .5rem; color: var(--fg); font-size: .85rem; }
   .tg { font-weight: 600; margin-top: .15rem; }
@@ -329,18 +331,22 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
 export interface SidebarDaten {
   faecher: { code: string; name: string }[]
   fachCode: string
-  lehrplanUrl: string | null
-  lerngebiete: {
-    nummer: number
-    name: string
-    teilgebiete: {
-      code: string
+  lehrplaene: {
+    code: string
+    name: string // "Grundlagenfach" — als Zwischentitel nur bei mehreren Lehrplänen
+    url: string | null
+    lerngebiete: {
+      nummer: number
       name: string
-      anzahl: number
-      kompetenzen: { code: string; text: string; anzahl: number }[]
+      teilgebiete: {
+        code: string
+        name: string
+        anzahl: number
+        kompetenzen: { code: string; text: string; anzahl: number }[]
+      }[]
     }[]
   }[]
-  aktiv?: string // "T1.2" | "K1.2.1"
+  aktiv?: string // "<lehrplan>:T1.2" | "<lehrplan>:K1.2.1"
   user?: { nickname: string; istAdmin?: boolean } | null
 }
 
@@ -368,21 +374,26 @@ export function sidebar(d: SidebarDaten): string {
 <select onchange="location='/fach/'+this.value">
 ${d.faecher.map((f) => `<option value="${esc(f.code)}"${f.code === d.fachCode ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}
 </select>
-${d.lerngebiete
+${d.lehrplaene
+  .map(
+    (lp) => `${d.lehrplaene.length > 1 ? `<div class="lp">${esc(lp.name)}</div>` : ''}
+${lp.lerngebiete
   .map(
     (lg) => `<div class="lg">${lg.nummer}. ${esc(lg.name)}</div>
 ${lg.teilgebiete
   .map(
-    (tg) => `<a class="tg${d.aktiv === 'T' + tg.code ? ' aktiv' : ''}" href="${tgPfad(d.fachCode, tg.code, tg.name)}">${tg.code} ${esc(tg.name)} <span class="anzahl">${tg.anzahl || ''}</span></a>
+    (tg) => `<a class="tg${d.aktiv === `${lp.code}:T${tg.code}` ? ' aktiv' : ''}" href="${tgPfad(lp.code, tg.code, tg.name)}">${tg.code} ${esc(tg.name)} <span class="anzahl">${tg.anzahl || ''}</span></a>
 ${tg.kompetenzen
-  .map((ko) => `<a class="ko${d.aktiv === 'K' + ko.code ? ' aktiv' : ''}" href="${koPfad(d.fachCode, ko.code, ko.text)}" title="${esc(ko.text)}">${esc(kürze(ko.text, 48))} <span class="anzahl">${ko.anzahl || ''}</span></a>`)
+  .map((ko) => `<a class="ko${d.aktiv === `${lp.code}:K${ko.code}` ? ' aktiv' : ''}" href="${koPfad(lp.code, ko.code, ko.text)}" title="${esc(ko.text)}">${esc(kürze(ko.text, 48))} <span class="anzahl">${ko.anzahl || ''}</span></a>`)
+  .join('\n')}`
+  )
   .join('\n')}`
   )
   .join('\n')}`
   )
   .join('\n')}
 <div class="fuss">
-  ${d.lehrplanUrl ? `<a href="${esc(d.lehrplanUrl)}" rel="noopener">Lehrplan (Original-PDF)</a>` : ''}
+  ${[...new Set(d.lehrplaene.map((lp) => lp.url).filter(Boolean))].map((u) => `<a href="${esc(u!)}" rel="noopener">Lehrplan (Original-PDF)</a>`).join(' · ')}
   <a href="https://eduskript.org" target="_blank" rel="noopener">eduskript.org</a>
   <a href="/suche">Suche</a>
   <a href="/melden">Quelle melden</a>

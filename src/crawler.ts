@@ -29,24 +29,21 @@ interface KlassifikationsKontext {
   teilgebiete: Awaited<ReturnType<typeof ladeKontext>>['teilgebiete']
 }
 
-// Codes sind Fach-qualifiziert («T:physik-gf:2.1», «K:informatik-gf:1.2.1»), weil
-// Teilgebiet-/Kompetenz-Codes («1.1» …) pro Fach vergeben werden und sonst kollidieren.
-// Ein Fach-Hinweis der Melder:in schränkt das Raster auf die Fach-Familie ein: «informatik-gf»
-// umfasst alle «informatik-*»-Lehrpläne (Grundlagenfach + kantonale Schwerpunktfächer),
-// damit Material auch dem SPF zugeordnet wird, wenn jemand «Informatik» gewählt hat.
+// Codes sind Lehrplan-qualifiziert («T:physik-gf:2.1», «K:informatik-gf:1.2.1»), weil
+// Teilgebiet-/Kompetenz-Codes («1.1» …) pro Lehrplan vergeben werden und sonst kollidieren.
+// Ein Fach-Hinweis der Melder:in schränkt das Raster auf die Lehrpläne dieses Fachs ein.
 async function ladeKontext(fachCode?: string | null) {
-  const include = { kompetenzen: true, lerngebiet: { include: { fach: true } } } as const
-  const familie = fachCode?.split('-')[0]
+  const include = { kompetenzen: true, lerngebiet: { include: { lehrplan: { include: { fach: true } } } } } as const
   let teilgebiete = await prisma.teilgebiet.findMany({
-    where: familie ? { lerngebiet: { fach: { code: { startsWith: `${familie}-` } } } } : {},
+    where: fachCode ? { lerngebiet: { lehrplan: { fach: { code: fachCode } } } } : {},
     include,
   })
   if (teilgebiete.length === 0 && fachCode) teilgebiete = await prisma.teilgebiet.findMany({ include }) // unbekannter Hinweis → alle Fächer
-  const mehrereFaecher = new Set(teilgebiete.map((tg) => tg.lerngebiet.fachId)).size > 1
-  const fachPrefix = (tg: (typeof teilgebiete)[number]) => (mehrereFaecher ? `${tg.lerngebiet.fach.name}: ` : '')
+  const mehrereLehrplaene = new Set(teilgebiete.map((tg) => tg.lerngebiet.lehrplanId)).size > 1
+  const lpPrefix = (tg: (typeof teilgebiete)[number]) => (mehrereLehrplaene ? `${tg.lerngebiet.lehrplan.fach.name} ${tg.lerngebiet.lehrplan.name}: ` : '')
   const optionen = teilgebiete.flatMap((tg) => [
-    { code: `T:${tg.lerngebiet.fach.code}:${tg.code}`, label: `${fachPrefix(tg)}${tg.lerngebiet.name} → ${tg.name} (gesamtes Teilgebiet)` },
-    ...tg.kompetenzen.map((ko) => ({ code: `K:${tg.lerngebiet.fach.code}:${ko.code}`, label: `${fachPrefix(tg)}${ko.text}` })),
+    { code: `T:${tg.lerngebiet.lehrplan.code}:${tg.code}`, label: `${lpPrefix(tg)}${tg.lerngebiet.name} → ${tg.name} (gesamtes Teilgebiet)` },
+    ...tg.kompetenzen.map((ko) => ({ code: `K:${tg.lerngebiet.lehrplan.code}:${ko.code}`, label: `${lpPrefix(tg)}${ko.text}` })),
   ])
   const tags = await prisma.tag.findMany({ where: { status: 'AKTIV' }, select: { name: true } })
   return { optionen, tagNamen: tags.map((t) => t.name), teilgebiete }
@@ -90,8 +87,8 @@ async function verarbeiteMaterial(
 
   const zuordnungen: { teilgebietId: number; kompetenzId: number | null }[] = []
   for (const code of k.zuordnungen) {
-    const [typ, fachCode, rest] = code.split(':')
-    const imFach = ctx.teilgebiete.filter((t) => t.lerngebiet.fach.code === fachCode)
+    const [typ, lpCode, rest] = code.split(':')
+    const imFach = ctx.teilgebiete.filter((t) => t.lerngebiet.lehrplan.code === lpCode)
     if (typ === 'T') {
       const tg = imFach.find((t) => t.code === rest)
       if (tg) zuordnungen.push({ teilgebietId: tg.id, kompetenzId: null })
