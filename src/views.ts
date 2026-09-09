@@ -22,7 +22,7 @@ export function kürze(s: string, n: number): string {
 
 export const BASE_URL = process.env.BASE_URL ?? 'https://atlas.eduskript.org'
 
-// SEO-Slugs: Keywords in die URL (/fach/…/k/1.2.1-begriff-algorithmus-definieren).
+// SEO-Slugs: Keywords in die URL (/lehrplan/…/k/1.2.1-begriff-algorithmus-definieren).
 // Stoppwörter raus, damit die tragenden Begriffe vorne stehen; max 5 Wörter.
 const STOPP = new Set('der die das den dem des ein eine einer eines einem und oder mit für von im in zu sie sich auf aus bei als z b zb ihre seine indem mittels können'.split(' '))
 export function slug(s: string): string {
@@ -124,7 +124,7 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
     const q = filterQuery()
     if (!el) { // Seite ohne Liste (z.B. Suche): zum Fach springen, Filter reist per localStorage mit
       const fach = document.querySelector('aside select')
-      if (fach) location.href = '/fach/' + fach.value
+      if (fach) location.href = '/lehrplan/' + fach.value
       return
     }
     history.replaceState(null, '', location.pathname + (q ? '?' + q : ''))
@@ -140,7 +140,7 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
     zeigeFilterTab()
     document.body.addEventListener('htmx:afterSwap', (e) => { if (e.target.id === 'materialliste') zeigeFilterTab() })
     if (!document.getElementById('materialliste')) return
-    // Fachwechsel: gemerkte Filter/Suche gehören zum alten Fach → zurücksetzen
+    // Lehrplanwechsel: gemerkte Filter/Suche gehören zum alten Lehrplan → zurücksetzen
     const fachSel = document.querySelector('aside select')
     if (fachSel && localStorage.getItem('f-fach') !== fachSel.value) {
       localStorage.setItem('f-fach', fachSel.value)
@@ -249,7 +249,6 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
   aside .by:hover { color: var(--meta); text-decoration: none; }
   aside .untertitel { font-size: .75rem; color: var(--meta); margin-bottom: 1rem; }
   aside select { width: 100%; padding: .4rem; font: inherit; border: 1px solid var(--rand); border-radius: 6px; background: var(--card); color: var(--fg); margin-bottom: 1rem; }
-  .lp { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 1.1rem; color: var(--primary); margin: 1.2rem 0 0; }
   .lg { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: .95rem; margin: .9rem 0 .2rem; }
   .tg, .ko { display: block; border-radius: 6px; padding: .15rem .5rem; color: var(--fg); font-size: .85rem; }
   .tg { font-weight: 600; margin-top: .15rem; }
@@ -335,29 +334,25 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
 }
 
 export interface SidebarDaten {
-  faecher: { code: string; name: string }[]
-  fachCode: string
-  lehrplaene: {
-    code: string
-    name: string // "Grundlagenfach" — als Zwischentitel nur bei mehreren Lehrplänen
-    url: string | null
-    lerngebiete: {
-      nummer: number
+  lehrplaene: { code: string; name: string; fach: string }[] // Dropdown, nach Fach gruppiert
+  lpCode: string
+  fachCode: string // fürs Melden-Formular (Fach-Hinweis)
+  url: string | null
+  lerngebiete: {
+    nummer: number
+    name: string
+    teilgebiete: {
+      code: string
       name: string
-      teilgebiete: {
-        code: string
-        name: string
-        anzahl: number
-        kompetenzen: { code: string; text: string; anzahl: number }[]
-      }[]
+      anzahl: number
+      kompetenzen: { code: string; text: string; anzahl: number }[]
     }[]
   }[]
-  aktiv?: string // "<lehrplan>:T1.2" | "<lehrplan>:K1.2.1"
+  aktiv?: string // "T1.2" | "K1.2.1"
   user?: { nickname: string; istAdmin?: boolean } | null
 }
 
 export function sidebar(d: SidebarDaten): string {
-  const basis = `/fach/${d.fachCode}`
   const moon = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>`
   const sun = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>`
   const person = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`
@@ -377,29 +372,24 @@ export function sidebar(d: SidebarDaten): string {
       : `<div class="pill"><a class="pbtn" href="/login" title="Sign in">${login}</a></div>`
   }
 </div>
-<select onchange="location='/fach/'+this.value">
-${d.faecher.map((f) => `<option value="${esc(f.code)}"${f.code === d.fachCode ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}
+<select onchange="location='/lehrplan/'+this.value">
+${[...new Set(d.lehrplaene.map((l) => l.fach))].map((fach) => `<optgroup label="${esc(fach)}">${d.lehrplaene.filter((l) => l.fach === fach).map((l) => `<option value="${esc(l.code)}"${l.code === d.lpCode ? ' selected' : ''}>${esc(l.name)}</option>`).join('')}</optgroup>`).join('')}
 </select>
-${d.lehrplaene
-  .map(
-    (lp) => `${d.lehrplaene.length > 1 ? `<div class="lp">${esc(lp.name)}</div>` : ''}
-${lp.lerngebiete
+${d.lerngebiete
   .map(
     (lg) => `<div class="lg">${lg.nummer}. ${esc(lg.name)}</div>
 ${lg.teilgebiete
   .map(
-    (tg) => `<a class="tg${d.aktiv === `${lp.code}:T${tg.code}` ? ' aktiv' : ''}" href="${tgPfad(lp.code, tg.code, tg.name)}">${tg.code} ${esc(tg.name)} <span class="anzahl">${tg.anzahl || ''}</span></a>
+    (tg) => `<a class="tg${d.aktiv === 'T' + tg.code ? ' aktiv' : ''}" href="${tgPfad(d.lpCode, tg.code, tg.name)}">${tg.code} ${esc(tg.name)} <span class="anzahl">${tg.anzahl || ''}</span></a>
 ${tg.kompetenzen
-  .map((ko) => `<a class="ko${d.aktiv === `${lp.code}:K${ko.code}` ? ' aktiv' : ''}" href="${koPfad(lp.code, ko.code, ko.text)}" title="${esc(ko.text)}">${esc(kürze(ko.text, 48))} <span class="anzahl">${ko.anzahl || ''}</span></a>`)
-  .join('\n')}`
-  )
+  .map((ko) => `<a class="ko${d.aktiv === 'K' + ko.code ? ' aktiv' : ''}" href="${koPfad(d.lpCode, ko.code, ko.text)}" title="${esc(ko.text)}">${esc(kürze(ko.text, 48))} <span class="anzahl">${ko.anzahl || ''}</span></a>`)
   .join('\n')}`
   )
   .join('\n')}`
   )
   .join('\n')}
 <div class="fuss">
-  ${[...new Set(d.lehrplaene.map((lp) => lp.url).filter(Boolean))].map((u) => `<a href="${esc(u!)}" rel="noopener">Lehrplan (Original-PDF)</a>`).join(' · ')}
+  ${d.url ? `<a href="${esc(d.url)}" rel="noopener">Lehrplan (Original)</a>` : ''}
   <a href="https://eduskript.org" target="_blank" rel="noopener">eduskript.org</a>
   <a href="/suche">Suche</a>
   <a href="/melden">Quelle melden</a>
