@@ -888,14 +888,17 @@ export async function crawlQuelle(quelleId: number, force = false, sammelLauf = 
 }
 
 // Nächtlicher Lauf: alle nicht endgültig toten Quellen.
-// Aufruf: npm run crawl [-- --force]  (--force: Änderungserkennung umgehen, alles neu klassifizieren)
-export async function crawlAlle(force = false) {
+// Aufruf: npm run crawl [-- --force] [-- --ab=<quelleId>]
+// --force: Änderungserkennung umgehen, alles neu klassifizieren; --ab: erst ab dieser Quellen-Id
+// ab: erst ab dieser Quellen-Id (inklusive) — Wiedereinstieg, wenn ein Force-Crawl
+// abgebrochen ist (z.B. AI-Credits aufgebraucht), ohne die fertigen Quellen nochmals zu bezahlen
+export async function crawlAlle(force = false, ab = 0) {
   try {
     console.log(await syncEduskriptVerzeichnis())
   } catch (e) {
     console.error('Verzeichnis-Sync fehlgeschlagen:', (e as Error).message)
   }
-  const quellen = await prisma.quelle.findMany({ where: { todesCounter: { lt: TODES_SCHWELLE } } })
+  const quellen = await prisma.quelle.findMany({ where: { todesCounter: { lt: TODES_SCHWELLE }, id: { gte: ab } }, orderBy: { id: 'asc' } })
   for (const q of quellen) {
     const resultat = await crawlQuelle(q.id, force, true)
     console.log(`${q.url} → ${resultat}`)
@@ -904,5 +907,6 @@ export async function crawlAlle(force = false) {
 }
 
 if (process.argv[1]?.endsWith('crawler.ts') || process.argv[1]?.endsWith('crawler.js')) {
-  crawlAlle(process.argv.includes('--force')).then(() => prisma.$disconnect())
+  const ab = Number(process.argv.find((a) => a.startsWith('--ab='))?.slice(5) ?? 0)
+  crawlAlle(process.argv.includes('--force'), ab).then(() => prisma.$disconnect())
 }
