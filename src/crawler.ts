@@ -10,6 +10,7 @@ import { pruefeOeffentlich } from './netz.js'
 import { syncEduskriptVerzeichnis } from './verzeichnis.js'
 
 const TODES_SCHWELLE = 3
+const PDF_MAX_BYTES = 25 * 1024 * 1024
 const MAX_SEITEN = Number(process.env.MAX_SEITEN) || 200 // Deckel pro Quelle und Nacht — Rest kommt in späteren Läufen; per Env übersteuerbar für manuelle Läufe
 
 const hash = (s: string | Buffer) => crypto.createHash('sha256').update(s).digest('hex')
@@ -228,7 +229,12 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   if (spaSeiten) return crawlBuchSpa(quelle, spaSeiten, ctx, force)
 
   const startRes = await fetchSeite(quelle.url)
-  if (!startRes.ok) throw new Error(`HTTP ${startRes.status}`)
+  if (!startRes.ok) {
+    // Cloudflare & Co. liefern 403/503 mit Challenge-Seite — für Bots unpassierbar
+    const body = [403, 503].includes(startRes.status) ? await startRes.text().catch(() => '') : ''
+    if (/cf-chl|cloudflare|Just a moment|challenge-platform|captcha/i.test(body)) throw new Error(`Bot-Sperre (HTTP ${startRes.status})`)
+    throw new Error(`HTTP ${startRes.status}`)
+  }
   const startHtml = await startRes.text()
 
   const origin = new URL(quelle.url).origin
@@ -238,10 +244,12 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   // Zeigt die Quelle auf eine Datei (…/physik_index.html, /doku.php), zählt deren
   // Ordner als Präfix — unterhalb einer Datei läge sonst nie eine zweite Seite.
   const basisPfad = new URL(quelle.url).pathname.replace(/\/[^/]*\.[^/]+$/, '').replace(/\/$/, '')
+  // PDFs sind bei klassischen Lehrer-Seiten (Link-Liste → Arbeitsblätter) das eigentliche
+  // Material — die laufen durch pdftotext; andere Binärdateien bleiben draussen.
   const passt = (u: string) => {
     try {
       const p = new URL(u)
-      if (p.hostname !== host || BINAER.test(p.pathname)) return false
+      if (p.hostname !== host || (BINAER.test(p.pathname) && !/\.pdf(\?|$)/i.test(p.pathname))) return false
       return basisPfad === '' || p.pathname === basisPfad || p.pathname.startsWith(basisPfad + '/')
     } catch { return false }
   }
@@ -312,9 +320,10 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
       const ctype = res?.headers.get('content-type') ?? 'text/html'
       let text: string
       let format = 'webseite'
-      if (res && /application\/pdf/i.test(ctype)) {
-        // PDFs hinter Skript-URLs (DokuWiki fetch.php & Co.) — die Endungs-Sperre
-        // (BINAER) greift dort nicht, also über den Content-Type erkennen
+      if (res && (/application\/pdf/i.test(ctype) || /\.pdf(\?|$)/i.test(effektiveUrl))) {
+        // Erkennung über Content-Type (DokuWiki fetch.php & Co.) oder Endung
+        const laenge = Number(res.headers.get('content-length') ?? 0)
+        if (laenge > PDF_MAX_BYTES) continue // Bücher/Scans: zu gross für pdftotext + AI
         const tmp = path.join(process.cwd(), 'data', 'tmp', `web-${quelle.id}.pdf`)
         await fs.mkdir(path.dirname(tmp), { recursive: true })
         await fs.writeFile(tmp, Buffer.from(await res.arrayBuffer()))

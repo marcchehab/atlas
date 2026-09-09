@@ -126,9 +126,19 @@ function leseFilter(req: express.Request): ListenFilter {
   return { quellen: arr(req.query.quelle), tags: arr(req.query.tag), format: arr(req.query.fmt), q: String(req.query.q ?? '').trim() }
 }
 
-// FTS5-Volltextsuche → Material-Ids (Wörter gequotet = keine FTS-Syntax-Injektion)
+// FTS5-Anfrage: Wörter gequotet (keine FTS-Syntax-Injektion), ab 3 Zeichen als Präfix —
+// «Grammar» findet «Grammars», «Schleife» findet «Schleifen». Der unicode61-Tokenizer
+// kennt kein Stemming, und Porter wäre nur englisch.
+function ftsAnfrage(woerter: string[]): string {
+  return woerter.map((w) => {
+    const rein = w.replace(/"/g, '')
+    return `"${rein}"${rein.length >= 3 ? '*' : ''}`
+  }).join(' ')
+}
+
+// FTS5-Volltextsuche → Material-Ids
 async function ftsIds(q: string): Promise<Set<number>> {
-  const ftsQuery = q.split(/\s+/).map((w) => `"${w.replace(/"/g, '')}"`).join(' ')
+  const ftsQuery = ftsAnfrage(q.split(/\s+/))
   const rows = await prisma.$queryRawUnsafe<{ id: number }[]>(
     `SELECT rowid AS id FROM material_fts WHERE material_fts MATCH ? ORDER BY rank LIMIT 500`,
     ftsQuery
@@ -505,8 +515,7 @@ app.get('/suche', async (req, res) => {
       ? { OR: quellTreffer.map((g) => ({ url: { contains: g } })) }
       : {}
     if (textWoerter.length) {
-      // FTS5 über $queryRaw; Anfrage in Anführungszeichen = keine FTS-Syntax-Injektion
-      const ftsQuery = textWoerter.map((w) => `"${w.replace(/"/g, '')}"`).join(' ')
+      const ftsQuery = ftsAnfrage(textWoerter)
       const rows = await prisma.$queryRawUnsafe<{ id: number }[]>(
         `SELECT rowid AS id FROM material_fts WHERE material_fts MATCH ? ORDER BY rank LIMIT 100`,
         ftsQuery
@@ -636,7 +645,9 @@ async function crawlStatusFragment(quelleId: number): Promise<string> {
   const quelle = await prisma.quelle.findUnique({ where: { id: quelleId } })
   return `<div id="crawl-status">
 <p>✅ Fertig: <strong>${anzahl}</strong> Materialien aufgenommen${lauf?.resultat ? ` <span class="meta">(${esc(lauf.resultat)})</span>` : ''}</p>
-${quelle && quelle.todesCounter > 0 ? '<p class="hinweis">Die Quelle war nicht erreichbar — bitte URL prüfen.</p>' : ''}
+${lauf?.resultat?.startsWith('Fehler: Bot-Sperre')
+    ? '<p class="hinweis">Diese Website blockiert automatisierte Zugriffe (z.B. Cloudflare-Prüfung «Just a moment…»). Atlas kann sie nicht lesen — nur die Betreiber:innen können den Bot freischalten.</p>'
+    : quelle && quelle.todesCounter > 0 ? '<p class="hinweis">Die Quelle war nicht erreichbar — bitte URL prüfen.</p>' : ''}
 <p><a href="/">Zur Übersicht</a> · <a href="/quellen">Alle Quellen</a></p>
 </div>`
 }
