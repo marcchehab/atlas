@@ -1,0 +1,10 @@
+# Build-Kontext klein halten: data/ (SQLite, Git-Klone, Backups) ist ein Bind-Mount,
+# node_modules und .venv baut das Image selbst. Ohne diese Datei landete data/ (1.7 GB)
+# in jedem Image — Build-Cache wuchs auf 11 GB und füllte die VPS-Platte.
+data
+node_modules
+.venv
+.git
+.env
+.claude
+*.log
