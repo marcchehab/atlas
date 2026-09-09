@@ -24,15 +24,15 @@ export const SCORE_PROMPT = `1. qualityScore 0–100: Taugt das als Unterrichtsm
    0–20 untauglich: kein Unterrichtsinhalt — Navigation, Portal, Index, Impressum, Linkliste, Fragment, falsches Niveau.
    21–40 Rohmaterial: Inhalt vorhanden, aber ohne Einstieg, ohne Beispiele oder ohne Lösungen — Folien, Notizen, nackte Theorie, Aufgaben ohne Lösungen. Nur mit Lehrperson nutzbar.
    41–60 solide: verständlich aufgebaut — Erklärung mit Beispielen oder Übungen mit Lösungen, Begriffe sauber. Funktioniert im Unterricht, ist aber Routine.
-   61–80 lebendig: solide, und dazu etwas, das Schüler:innen packt — spielerischer Zugang, überraschendes Beispiel, Rätsel, Projekt, Wettbewerb, Humor, interaktives Werkzeug, echter Bezug zu ihrer Welt. Auch ein Übungsblatt, wenn die Aufgaben interessant und spannend sind.
+   61–80 lebendig: solide, und dazu etwas, das Schülerinnen und Schüler packt — spielerischer Zugang, überraschendes Beispiel, Rätsel, Projekt, Wettbewerb, Humor, interaktives Werkzeug, echter Bezug zu ihrer Welt. Auch ein Übungsblatt, wenn die Aufgaben interessant und spannend sind.
    81–100 begeisternd: didaktisch vollständig — Intuition vor Formalismus, gute Beispiele, gute Aufgaben mit Lösungen, Zusammenfassung oder Selbstcheck — und die Klasse will das machen. Oder ein Werkzeug, mit dem man das Thema selbst erkunden kann. Material, das man Kolleg:innen sofort weiterschickt.`
 
 export const SCORE_BAENDER: [number, string, string][] = [
-  [0, 'untauglich', 'kein Unterrichtsinhalt'],
-  [21, 'Rohmaterial', 'nur mit Lehrperson nutzbar'],
-  [41, 'solide', 'funktioniert, ist aber Routine'],
-  [61, 'lebendig', 'packt die Schüler:innen'],
-  [81, 'begeisternd', 'vollständig und mitreissend'],
+  [0, 'untauglich', 'kein Unterrichtsinhalt: Navigation, Portal, Linkliste'],
+  [21, 'Rohmaterial', 'Inhalt ohne Einstieg, Beispiele oder Lösungen, braucht die Lehrperson dazu'],
+  [41, 'solide', 'verständlich aufgebaut, mit Beispielen oder Übungen und Lösungen'],
+  [61, 'lebendig', 'packt die Schüler: spielerisch, überraschend, mit Bezug zu ihrer Welt'],
+  [81, 'begeisternd', 'didaktisch vollständig und mitreissend, das schickt man Kollegen weiter'],
 ]
 export const bandName = (score: number) => [...SCORE_BAENDER].reverse().find(([von]) => score >= von)![1]
 

@@ -690,7 +690,7 @@ async function crawlStatusFragment(quelleId: number): Promise<string> {
   return `<div id="crawl-status">
 <p>✅ Fertig: <strong>${anzahl}</strong> Materialien aufgenommen${lauf?.resultat ? ` <span class="meta">(${esc(lauf.resultat)})</span>` : ''}</p>
 ${lauf?.resultat?.startsWith('Fehler: Bot-Sperre')
-    ? '<p class="hinweis">Diese Website blockiert automatisierte Zugriffe (z.B. Cloudflare-Prüfung «Just a moment…»). Atlas kann sie nicht lesen — nur die Betreiber:innen können den Bot freischalten.</p>'
+    ? '<p class="hinweis">Diese Website blockiert automatisierte Zugriffe (z.B. Cloudflare-Prüfung «Just a moment…»). Atlas kann sie nicht lesen — nur die Betreiber können den Bot freischalten.</p>'
     : quelle && quelle.todesCounter > 0 ? '<p class="hinweis">Die Quelle war nicht erreichbar — bitte URL prüfen.</p>' : ''}
 <p><a href="/">Zur Übersicht</a> · <a href="/quellen">Alle Quellen</a></p>
 </div>`
