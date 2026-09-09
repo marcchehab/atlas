@@ -32,7 +32,16 @@ Erlaubte Tags: ${tagNamen.join(', ')}
 Tag-Regeln: Werkzeug-Tags (python, java, blender, robotik …) nur, wenn das Werkzeug im Material aktiv verwendet wird. «theorie» nur für primär theoretische Materialien ohne Übungs-/Praxisteil. «formell» nur bei mathematisch-formaler Darstellung (Definitionen, Beweise, Formeln). «spielerisch» nur bei explizit spielerischem Zugang. Im Zweifel ein Tag weglassen.
 
 Aufgaben:
-1. qualityScore 0–100: Taugt das als konkretes Unterrichtsmaterial fürs Gymnasium? (<20 = untauglich; Latte tief ansetzen, im Zweifel aufnehmen. Untauglich sind aber immer: Navigations-, Index- und Impressumsseiten sowie Start-/Portal-/Übersichtsseiten, die ein Angebot nur beschreiben oder verlinken statt selbst Unterrichtsinhalt zu sein.)
+1. qualityScore 0–100: Taugt das als Unterrichtsmaterial fürs Gymnasium, und wie gut?
+   Gutes Material erklärt zuerst anschaulich und intuitiv, dann erst formal, zeigt gute Beispiele und lässt die Schüler:innen mit Aufgaben und Lösungen selbst arbeiten. Und es begeistert: spielerisch, überraschend, lustig, mit echtem Bezug zur Welt der Schüler:innen. Gute Übungen sind wertvoll, werte Übungsblätter nicht ab. Entscheidend ist, ob die Aufgaben interessant und spannend sind oder Routine.
+   Auch ein gutes Werkzeug kann sehr gut bewertet werden: interaktive Simulatoren, Rechner, Editoren oder Spiele, mit denen Schüler:innen etwas ausprobieren und verstehen (z.B. ein Little-Man-Computer-Simulator), gehören in die oberen Bänder, auch wenn sie wenig erklärenden Text enthalten. Erkenne Werkzeuge auch an Bedienelementen und Beschreibungen, nicht nur an Erklärtext.
+   Bewerte nur, was im Text selbst steht, nicht was verlinkt oder angekündigt wird.
+   Bänder (innerhalb eines Bands graduell abstufen):
+   0–20 untauglich: kein Unterrichtsinhalt — Navigation, Portal, Index, Impressum, Linkliste, Fragment, falsches Niveau.
+   21–40 dürftig: Inhalt vorhanden, aber ohne Einstieg, ohne Beispiele oder ohne Lösungen — Folien, Notizen, nackte Theorie, Aufgaben ohne Lösungen. Nur mit Lehrperson nutzbar.
+   41–60 solide: verständlich aufgebaut — Erklärung mit Beispielen oder Übungen mit Lösungen, Begriffe sauber. Funktioniert im Unterricht, ist aber Routine.
+   61–80 lebendig: solide, und dazu etwas, das Schüler:innen packt — spielerischer Zugang, überraschendes Beispiel, Rätsel, Projekt, Wettbewerb, Humor, interaktives Werkzeug, echter Bezug zu ihrer Welt. Auch ein Übungsblatt, wenn die Aufgaben interessant und spannend sind.
+   81–100 begeisternd: didaktisch vollständig — Intuition vor Formalismus, gute Beispiele, gute Aufgaben mit Lösungen, Zusammenfassung oder Selbstcheck — und die Klasse will das machen. Oder ein Werkzeug, mit dem man das Thema selbst erkunden kann. Material, das man Kolleg:innen sofort weiterschickt.
 2. titel: prägnanter Titel des Materials
 3. zusammenfassung: 2–3 Sätze auf Deutsch
 4. zuordnungen: abgedeckte Kompetenzen (K…); nur wenn ein Material ein Teilgebiet breit abdeckt, stattdessen dessen T…-Code. Leer, wenn nichts passt. Nur zuordnen, was der Text selbst unterrichtet — nicht, was er bloß erwähnt oder verlinkt. Kompetenzen mit Werkzeug-Bezug (z.B. «mittels Programmierung») nur, wenn dieses Werkzeug im Material tatsächlich eingesetzt wird — ein Tutorial zu einer Kreativ-Software ohne Programmieranteil erfüllt keine Programmier-Kompetenz.

@@ -120,7 +120,7 @@ async function ladeMaterialKarten(where: object, userId: number | null, fachCode
       aiScore: m.qualityScore ?? 0,
     }))
     // Ranking: Community-Votes zuerst, AI-Score nur als Initial-Ranking dahinter
-    .sort((a, b) => b.score - a.score || b.aiScore - a.aiScore)
+    .sort((a, b) => sortScore(b) - sortScore(a) || b.id - a.id)
 }
 
 const SEITE = 50 // Karten pro Nachlade-Schritt (Endlos-Scroll)
@@ -156,6 +156,9 @@ async function ftsIds(q: string): Promise<Set<number>> {
   )
   return new Set(rows.map((r) => Number(r.id)))
 }
+
+// Ranking: AI-Band (0–100) plus 5 Punkte pro Netto-Stimme; bei Gleichstand das Neuere zuerst
+const sortScore = (m: { score: number; aiScore: number }) => m.aiScore + 5 * m.score
 
 interface LeichtesMaterial {
   id: number
@@ -248,7 +251,7 @@ async function listeFragment(where: object, basisUrl: string, req: express.Reque
   }
   const gefiltert = leicht
     .filter((m) => passtAusser(m, f, null))
-    .sort((a, b) => b.score - a.score || b.aiScore - a.aiScore)
+    .sort((a, b) => sortScore(b) - sortScore(a) || b.id - a.id)
   const slice = gefiltert.slice(offset, offset + SEITE)
   const karten = await ladeMaterialKarten({ id: { in: slice.map((s) => s.id) } }, user?.id ?? null, fachCode)
   const nachId = new Map(karten.map((k) => [k.id, k]))
