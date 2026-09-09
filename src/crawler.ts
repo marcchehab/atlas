@@ -331,7 +331,10 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
       } else {
         const html = res ? await res.text() : startHtml
         if (!sitemap) {
-          for (const l of sammleUrls(effektiveUrl, html)) {
+          // Relative Links gegen die End-URL nach Redirects auflösen: «/2021/2iG» → «/2021/2iG/»,
+          // sonst zeigt «Thonny/x.pdf» nach /2021/Thonny/… und fällt aus dem Pfad-Präfix
+          const linkBasis = (res ?? startRes).url || effektiveUrl
+          for (const l of sammleUrls(linkBasis, html)) {
             if (passt(l) && !geplant.has(l)) { geplant.add(l); queue.push(l) }
           }
         }
