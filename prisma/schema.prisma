@@ -57,6 +57,8 @@ model Lehrplan {
   fach        Fach         @relation(fields: [fachId], references: [id], onDelete: Cascade)
   fachId      Int
   lerngebiete Lerngebiet[]
+
+  @@index([fachId])
 }
 
 model Lerngebiet {
@@ -78,6 +80,8 @@ model Teilgebiet {
   name         String // "Algorithmische Problemlösung"
   kompetenzen  Kompetenz[]
   zuordnungen  MaterialZuordnung[]
+
+  @@index([lerngebietId])
 }
 
 model Kompetenz {
@@ -87,6 +91,8 @@ model Kompetenz {
   code         String // "1.2.1" (RLP nummeriert Kompetenzen nicht — eigene Zählung)
   text         String
   zuordnungen  MaterialZuordnung[]
+
+  @@index([teilgebietId])
 }
 
 model Material {
@@ -110,6 +116,8 @@ model Material {
   zuordnungen    MaterialZuordnung[]
   tags           MaterialTag[]
   upvotes        Upvote[]
+
+  @@index([quelleId])
 }
 
 // Material kann einem ganzen Teilgebiet oder einer einzelnen Kompetenz zugeordnet sein.
@@ -122,6 +130,12 @@ model MaterialZuordnung {
   teilgebietId Int
   kompetenz    Kompetenz?  @relation(fields: [kompetenzId], references: [id], onDelete: Cascade)
   kompetenzId  Int?
+
+  @@index([materialId])
+  // zusammengesetzt: die EXISTS-Abfragen «hat Material X eine Zuordnung zu Teilgebiet Y»
+  // finden sonst per teilgebietId ~2000 Zeilen und scannen die pro Material (1.6 s)
+  @@index([teilgebietId, materialId])
+  @@index([kompetenzId, materialId])
 }
 
 model Tag {
@@ -139,6 +153,7 @@ model MaterialTag {
   tagId      Int
 
   @@id([materialId, tagId])
+  @@index([tagId])
 }
 
 model Upvote {
@@ -149,6 +164,7 @@ model Upvote {
   wert       Int      @default(1) // +1 Upvote, -1 Downvote
 
   @@id([userId, materialId])
+  @@index([materialId])
 }
 
 model TagVote {
@@ -158,6 +174,7 @@ model TagVote {
   tagId  Int
 
   @@id([userId, tagId])
+  @@index([tagId])
 }
 
 // Gelöschte Quellen: der Verzeichnis-Sync soll sie nicht wieder anlegen.
