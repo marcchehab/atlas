@@ -170,6 +170,46 @@ async function raeumeAuf(quelleId: number, gesehen: Set<string>, gedeckelt: bool
 // verlinkt, ist es. PDFs sind die Ausnahme (Skripte, Arbeitsblätter) und laufen durch pdftotext.
 const BINAER = /\.(pdf|zip|png|jpe?g|gif|svg|ico|css|js|json|mp[34]|og[gv]|wav|webm|woff2?|xml|txt|webmanifest|docx?|odt|pptx?|odp|xlsx?|ods|jar|war|class|exe|msi|dmg|apk|tar|gz|tgz|7z|rar)(\?|$)/i
 
+// Verlinkte Office-Dokumente sind kein eigenes Material, aber ihr Inhalt zählt für die
+// Bewertung der verlinkenden Seite: Text extrahieren und anhängen. Deckel gegen
+// Materialsammlungen mit Dutzenden Anhängen; Cache pro Crawl-Lauf (gleiches Dokument
+// von mehreren Seiten verlinkt → einmal laden).
+const ANHANG = /\.(docx|odt|pptx)(\?|$)/i
+const ANHANG_MAX_PRO_SEITE = 8
+const ANHANG_MAX_BYTES = 10 * 1024 * 1024
+const ANHANG_MAX_ZEICHEN = 8000
+
+async function anhaengeText(seitenUrl: string, html: string, cache: Map<string, string | null>, quelleId: number): Promise<string> {
+  const basis = new URL(seitenUrl)
+  const links = new Set<string>()
+  for (const m of html.matchAll(/href="([^"#]+)"/g)) {
+    try {
+      const u = new URL(m[1].replace(/&amp;/g, '&'), seitenUrl)
+      if (u.hostname === basis.hostname && ANHANG.test(u.pathname)) { u.hash = ''; links.add(u.toString()) }
+    } catch { /* kaputte hrefs ignorieren */ }
+  }
+  const teile: string[] = []
+  for (const url of [...links].slice(0, ANHANG_MAX_PRO_SEITE)) {
+    if (!cache.has(url)) {
+      let text: string | null = null
+      try {
+        const res = await fetchSeite(url)
+        if (res.ok && Number(res.headers.get('content-length') ?? 0) <= ANHANG_MAX_BYTES) {
+          const ext = path.extname(new URL(url).pathname).toLowerCase()
+          const tmp = path.join(process.cwd(), 'data', 'tmp', `anhang-${quelleId}-${hash(url).slice(0, 12)}${ext}`)
+          await fs.mkdir(path.dirname(tmp), { recursive: true })
+          await fs.writeFile(tmp, Buffer.from(await res.arrayBuffer()))
+          try { text = await dateiText(tmp) } finally { await fs.rm(tmp, { force: true }) }
+        }
+      } catch { text = null }
+      cache.set(url, text?.trim() ? text.trim().slice(0, ANHANG_MAX_ZEICHEN) : null)
+    }
+    const text = cache.get(url)
+    if (text) teile.push(`\n\n--- Anhang: ${decodeURIComponent(path.basename(new URL(url).pathname))} ---\n${text}`)
+  }
+  return teile.join('')
+}
+
 function sammleUrls(quelleUrl: string, html: string): string[] {
   const basis = new URL(quelleUrl)
   const urls = new Set<string>()
@@ -264,6 +304,7 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   const stat = { neu: 0, aktualisiert: 0, unverändert: 0, abgelehnt: 0, duplikat: 0, fehler: 0 }
   let ohneDownload = 0 // via Sitemap-lastmod oder HTTP 304 übersprungen (zählen auch als unverändert)
   const gesehen = new Set<string>()
+  const anhangCache = new Map<string, string | null>() // Anhang-URL → extrahierter Text (null = unbrauchbar)
   // Deckel zählt AI-Verarbeitungen (Kosten); Besuche sind billig und haben nur ein Sicherheitslimit
   const verarbeitet = () => stat.neu + stat.aktualisiert + stat.abgelehnt
   // Höflichkeit: kurze Pause zwischen Seiten; bei 429 (Rate-Limit) einmal warten
@@ -349,6 +390,7 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
         // URL dasselbe serverseitige Gerüst — z.B. Eduskript-Sites, solange deren
         // Markdown-Export fehlt).
         try { text = await extract(html) } catch { text = stripTags(html) }
+        text += await anhaengeText((res ?? startRes).url || effektiveUrl, html, anhangCache, quelle.id)
       }
       gesehen.add(effektiveUrl)
       // Caching-Marker fürs nächste Mal (Startseite kommt aus startRes)
