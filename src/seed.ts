@@ -299,7 +299,7 @@ interface FachDef { code: string; kuerzel: string; name: string; url: string | n
 const DISZIPLINEN: { code: string; name: string; faecher: FachDef[] }[] = [
   { code: 'informatik', name: 'Informatik', faecher: [
     { code: 'informatik-gf', kuerzel: 'Ginf', name: 'Grundlagenfach Informatik', url: LEHRPLAN_URL, lerngebiete: INFORMATIK },
-    { code: 'informatik-spf-ag', kuerzel: 'Sinf AG', name: 'Schwerpunktfach «Informatik und ihre Anwendungen» (Kanton AG)', url: SPF_AG_URL, lerngebiete: INFORMATIK_SPF_AG },
+    { code: 'informatik-spf-ag', kuerzel: 'SPF Inf AG', name: 'Schwerpunktfach «Informatik und ihre Anwendungen» (Kanton AG)', url: SPF_AG_URL, lerngebiete: INFORMATIK_SPF_AG },
   ] },
   { code: 'physik', name: 'Physik', faecher: [{ code: 'physik-gf', kuerzel: 'Gphy', name: 'Grundlagenfach Physik', url: LEHRPLAN_URL, lerngebiete: PHYSIK }] },
   { code: 'mathematik', name: 'Mathematik', faecher: [{ code: 'mathematik-gf', kuerzel: 'Gmat', name: 'Grundlagenfach Mathematik', url: LEHRPLAN_URL, lerngebiete: MATHEMATIK }] },

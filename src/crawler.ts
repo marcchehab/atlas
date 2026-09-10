@@ -166,7 +166,9 @@ async function raeumeAuf(quelleId: number, gesehen: Set<string>, gedeckelt: bool
 
 // ---------- Website-Connector: Sitemap bevorzugt, sonst Links der Startseite ----------
 
-const BINAER = /\.(pdf|zip|png|jpe?g|gif|svg|ico|css|js|json|mp[34]|og[gv]|wav|webm|woff2?|xml|txt|webmanifest)(\?|$)/i
+// Downloads (Office, Archive, Java-Programme …) sind kein eigenes Material — die Seite, die sie
+// verlinkt, ist es. PDFs sind die Ausnahme (Skripte, Arbeitsblätter) und laufen durch pdftotext.
+const BINAER = /\.(pdf|zip|png|jpe?g|gif|svg|ico|css|js|json|mp[34]|og[gv]|wav|webm|woff2?|xml|txt|webmanifest|docx?|odt|pptx?|odp|xlsx?|ods|jar|war|class|exe|msi|dmg|apk|tar|gz|tgz|7z|rar)(\?|$)/i
 
 function sammleUrls(quelleUrl: string, html: string): string[] {
   const basis = new URL(quelleUrl)
@@ -327,7 +329,11 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
         try { text = await pdftotext(tmp) } finally { await fs.rm(tmp, { force: true }) }
         format = 'pdf'
       } else if (res && !/html|xml/i.test(ctype)) {
-        continue // css.php, Feeds, Audio … gar nicht erst zur AI; ohne gesehen-Eintrag altern Alt-Materialien via fehlCounter raus
+        // css.php, Downloads ohne Endung, Feeds … gar nicht erst zur AI. Ein Alt-Material unter
+        // dieser URL (aus Crawls vor diesem Filter) sofort weg — bei gedeckelten Quellen
+        // wie swisseduc (800+ Seiten) käme raeumeAuf sonst nie dazu.
+        await prisma.material.deleteMany({ where: { url: effektiveUrl } })
+        continue
       } else {
         const html = res ? await res.text() : startHtml
         if (!sitemap) {
