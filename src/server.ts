@@ -670,7 +670,7 @@ app.post('/melden', async (req, res) => {
   crawlQuelle(quelle.id)
     .then((r) => crawlLaeufe.set(quelle.id, { fertig: true, resultat: r, start: Date.now() }))
     .catch((e) => crawlLaeufe.set(quelle.id, { fertig: true, resultat: `Fehler: ${(e as Error).message}`, start: Date.now() }))
-  res.redirect(`/quelle/${quelle.id}/status`)
+  res.redirect(`/quelle/${quelle.id}/status?neu=1`)
 })
 
 // Laufende Melde-Crawls (in-memory; nach Neustart zeigt die Status-Seite den DB-Stand)
@@ -701,10 +701,26 @@ app.get('/quelle/:id/status', async (req, res) => {
   const side = await baueSidebar(await aktivesFach(req), undefined, user)
   const quelle = await prisma.quelle.findUnique({ where: { id: Number(req.params.id) } })
   if (!quelle) return nichtGefunden(req, res, 'Quelle', user)
-  const body = `<h1>Quelle gemeldet</h1>
+  const titel = req.query.neu === '1' ? 'Quelle gemeldet' : 'Crawl'
+  const body = `<h1>${titel}</h1>
 <p><code>${esc(quelle.url)}</code></p>
 ${await crawlStatusFragment(quelle.id)}`
-  res.send(layout('Quelle gemeldet', side, body, user))
+  res.send(layout(titel, side, body, user))
+})
+
+// Admin: Force-Recrawl einer Quelle ohne Deckel (alles neu klassifizieren, z.B. nach Crawler-Fixes)
+app.post('/quelle/:id/crawl', async (req, res) => {
+  const user = await aktuellerUser(req)
+  if (!user?.istAdmin) return res.status(403).send('Nur Admins')
+  const id = Number(req.params.id)
+  const quelle = await prisma.quelle.findUnique({ where: { id } })
+  if (!quelle) return res.status(404).send('Quelle nicht gefunden')
+  if (crawlLaeufe.get(id)?.fertig === false) return res.redirect(`/quelle/${id}/status`)
+  crawlLaeufe.set(id, { fertig: false, start: Date.now() })
+  crawlQuelle(id, true, false, Infinity)
+    .then((r) => crawlLaeufe.set(id, { fertig: true, resultat: r, start: Date.now() }))
+    .catch((e) => crawlLaeufe.set(id, { fertig: true, resultat: `Fehler: ${(e as Error).message}`, start: Date.now() }))
+  res.redirect(`/quelle/${id}/status`)
 })
 
 app.get('/quelle/:id/status/fragment', async (req, res) => {
@@ -739,10 +755,11 @@ async function quellenListe(user: Nutzer | null): Promise<string> {
   const leer = quellen.filter((q) => !istAktiv(q))
   const leerGruppen = gruppiere(leer)
   const muell = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>'
+  const neuLaden = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>'
   const zeile = (q: (typeof quellen)[0]) =>
     `<tr><td><a href="${esc(q.url)}" rel="noopener">${esc(kürze(q.titel ?? q.url, 60))}</a></td><td>${esc(q.typ)}</td><td>${q.qualityScore ?? '–'}</td><td>${q.todesCounter}</td><td>${q._count.materialien}</td><td>${esc(q.melder.nickname)}</td>${
       user && (user.istAdmin || q.melderId === user.id)
-        ? `<td><form hx-post="/quelle/${q.id}/loeschen" hx-target="#quellen-liste" hx-swap="outerHTML" hx-confirm="Quelle samt ${q._count.materialien} Materialien und Votes löschen?"><button class="btn-loeschen" title="Quelle löschen">${muell}</button></form></td>`
+        ? `<td style="white-space:nowrap">${user.istAdmin ? `<form method="post" action="/quelle/${q.id}/crawl" style="display:inline" onsubmit="return confirm('Force-Recrawl ohne Deckel: alle Seiten neu laden und klassifizieren (AI-Kosten)?')"><button class="btn-loeschen" title="Force-Recrawl (ohne Deckel)">${neuLaden}</button></form> ` : ''}<form hx-post="/quelle/${q.id}/loeschen" hx-target="#quellen-liste" hx-swap="outerHTML" hx-confirm="Quelle samt ${q._count.materialien} Materialien und Votes löschen?" style="display:inline"><button class="btn-loeschen" title="Quelle löschen">${muell}</button></form></td>`
         : ''
     }</tr>`
   const gruppeHtml = ([key, qs]: [string, typeof quellen]) => {

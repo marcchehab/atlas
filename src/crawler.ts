@@ -261,11 +261,11 @@ async function ladeSitemap(origin: string): Promise<{ loc: string; lastmod?: str
   }
 }
 
-async function crawlWebsite(quelle: { id: number; url: string }, ctx: KlassifikationsKontext, force: boolean): Promise<string> {
+async function crawlWebsite(quelle: { id: number; url: string }, ctx: KlassifikationsKontext, force: boolean, maxSeiten = MAX_SEITEN): Promise<string> {
   // Buch-SPA erkennen (leere JS-Shell, Inhalte als .md daneben) — dann direkt lesen statt spidern
   const spaBasis = (() => { const u = new URL(quelle.url); u.search = ''; u.hash = ''; return u.toString().replace(/\/$/, '') })()
   const spaSeiten = await listeBuchSpaSeiten(spaBasis)
-  if (spaSeiten) return crawlBuchSpa(quelle, spaSeiten, ctx, force)
+  if (spaSeiten) return crawlBuchSpa(quelle, spaSeiten, ctx, force, maxSeiten)
 
   const startRes = await fetchSeite(quelle.url)
   if (!startRes.ok) {
@@ -312,7 +312,7 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   const PAUSE_MS = 400
   let rateLimits = 0
   let abgebrochen = false // Abbruch zählt wie gedeckelt: fehlende URLs nicht als tot werten
-  while (queue.length && besucht < 1000 && verarbeitet() < MAX_SEITEN) {
+  while (queue.length && besucht < (maxSeiten === Infinity ? 10000 : 1000) && verarbeitet() < maxSeiten) {
     const url = queue.shift()!
     besucht++
     try {
@@ -422,7 +422,7 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   }
   const gedeckelt = queue.length > 0 || abgebrochen
   const aufraeumen = await raeumeAuf(quelle.id, gesehen, gedeckelt)
-  return `${besucht} Seiten${gedeckelt ? ` (${abgebrochen ? 'Rate-Limit-Abbruch' : `gedeckelt, ${MAX_SEITEN}/Nacht`}, ${queue.length} offen)` : ''} via ${sitemap ? 'Sitemap' : 'Link-Spider'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert (davon ${ohneDownload} ohne Download), ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
+  return `${besucht} Seiten${gedeckelt ? ` (${abgebrochen ? 'Rate-Limit-Abbruch' : `gedeckelt, ${maxSeiten}/Nacht`}, ${queue.length} offen)` : ''} via ${sitemap ? 'Sitemap' : 'Link-Spider'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert (davon ${ohneDownload} ohne Download), ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
 }
 
 // ---------- Buch-SPA-Connector (mygymer-Stil) ----------
@@ -490,13 +490,13 @@ export async function listeBuchSpaSeiten(basis: string): Promise<BuchSeite[] | n
   return seiten.length ? seiten : null
 }
 
-async function crawlBuchSpa(quelle: { id: number }, seiten: BuchSeite[], ctx: KlassifikationsKontext, force: boolean): Promise<string> {
+async function crawlBuchSpa(quelle: { id: number }, seiten: BuchSeite[], ctx: KlassifikationsKontext, force: boolean, maxSeiten = MAX_SEITEN): Promise<string> {
   const stat = { neu: 0, aktualisiert: 0, unverändert: 0, abgelehnt: 0, duplikat: 0, fehler: 0 }
   const gesehen = new Set<string>()
   const verarbeitet = () => stat.neu + stat.aktualisiert + stat.abgelehnt
   let besucht = 0
   for (const s of seiten) {
-    if (verarbeitet() >= MAX_SEITEN) break
+    if (verarbeitet() >= maxSeiten) break
     besucht++
     try {
       let res = await fetchSeite(s.mdUrl)
@@ -527,7 +527,7 @@ async function crawlBuchSpa(quelle: { id: number }, seiten: BuchSeite[], ctx: Kl
   }
   const gedeckelt = besucht < seiten.length
   const aufraeumen = await raeumeAuf(quelle.id, gesehen, gedeckelt)
-  return `${besucht}/${seiten.length} Buchseiten via book.json${gedeckelt ? ` (gedeckelt, ${MAX_SEITEN}/Nacht)` : ''}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
+  return `${besucht}/${seiten.length} Buchseiten via book.json${gedeckelt ? ` (gedeckelt, ${maxSeiten}/Nacht)` : ''}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
 }
 
 // ---------- Git-Connector: Repo klonen, Markdown-Dateien als Materialien ----------
@@ -543,7 +543,7 @@ function git(args: string[], cwd?: string): Promise<string> {
   })
 }
 
-async function crawlGit(quelle: { id: number; url: string; contentHash: string | null }, ctx: KlassifikationsKontext, force: boolean): Promise<string> {
+async function crawlGit(quelle: { id: number; url: string; contentHash: string | null }, ctx: KlassifikationsKontext, force: boolean, maxSeiten = MAX_SEITEN): Promise<string> {
   const dir = path.join(process.cwd(), 'data', 'git', String(quelle.id))
   const existiert = await fs.access(path.join(dir, '.git')).then(() => true, () => false)
   if (existiert) await git(['pull', '--ff-only'], dir)
@@ -560,7 +560,7 @@ async function crawlGit(quelle: { id: number; url: string; contentHash: string |
   if (mdDateien.length >= 3) {
     // Markdown-Sammlung: jede Datei ein Material
     const gesehen = new Set<string>()
-    for (const datei of mdDateien.slice(0, MAX_SEITEN)) {
+    for (const datei of mdDateien.slice(0, maxSeiten)) {
       try {
         const text = await fs.readFile(path.join(dir, datei), 'utf8')
         const url = `${quelle.url.replace(/\.git$/, '')}/blob/HEAD/${datei}` // GitHub/GitLab-kompatibel
@@ -569,8 +569,8 @@ async function crawlGit(quelle: { id: number; url: string; contentHash: string |
       } catch { stat.fehler++ }
     }
     await prisma.quelle.update({ where: { id: quelle.id }, data: { contentHash: head } })
-    const aufraeumen = await raeumeAuf(quelle.id, gesehen, mdDateien.length > MAX_SEITEN)
-    return `${Math.min(mdDateien.length, MAX_SEITEN)} Markdown-Dateien: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
+    const aufraeumen = await raeumeAuf(quelle.id, gesehen, mdDateien.length > maxSeiten)
+    return `${Math.min(mdDateien.length, maxSeiten)} Markdown-Dateien: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
   }
 
   // Sonst (z.B. LaTeX-Skript): ganzes Repo als ein Material, Text aus README + .tex/.md
@@ -844,7 +844,7 @@ function formatFuerExt(ext: string): string {
   return 'dokument' // docx, odt, txt, tex
 }
 
-async function crawlCloud(quelle: { id: number; url: string; etag: string | null }, ctx: KlassifikationsKontext, force: boolean): Promise<string> {
+async function crawlCloud(quelle: { id: number; url: string; etag: string | null }, ctx: KlassifikationsKontext, force: boolean, maxSeiten = MAX_SEITEN): Promise<string> {
   const host = new URL(quelle.url).hostname.replace(/^www\./, '')
   const istDropbox = host.endsWith('dropbox.com')
   const dateien = istDropbox
@@ -869,7 +869,7 @@ async function crawlCloud(quelle: { id: number; url: string; etag: string | null
     const istVideo = VIDEO_EXTS.includes(ext)
     if ((!CLOUD_EXTS.includes(ext) && !istVideo) || (!istVideo && d.groesse > CLOUD_DATEI_MAX)) { stat.übersprungen++; continue }
     relevante++
-    if (stat.neu + stat.aktualisiert + stat.abgelehnt >= MAX_SEITEN) break
+    if (stat.neu + stat.aktualisiert + stat.abgelehnt >= maxSeiten) break
     const url = `${quelle.url}#${d.pfad}` // kein Deep-Link in anonyme Freigaben möglich — Fragment macht die URL eindeutig
     gesehen.add(url)
     neueSigs[d.pfad] = d.sig
@@ -894,22 +894,23 @@ async function crawlCloud(quelle: { id: number; url: string; etag: string | null
   }
   await fs.rm(path.join(process.cwd(), 'data', 'tmp', `dropbox-${quelle.id}`), { recursive: true, force: true })
   await prisma.quelle.update({ where: { id: quelle.id }, data: { etag: JSON.stringify(neueSigs) } })
-  const gedeckelt = relevante > MAX_SEITEN
+  const gedeckelt = relevante > maxSeiten
   const aufraeumen = await raeumeAuf(quelle.id, gesehen, gedeckelt)
-  return `${dateien.length} Dateien${gedeckelt ? ` (gedeckelt, ${MAX_SEITEN}/Nacht)` : ''}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.übersprungen} übersprungen, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
+  return `${dateien.length} Dateien${gedeckelt ? ` (gedeckelt, ${maxSeiten}/Nacht)` : ''}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert, ${stat.übersprungen} übersprungen, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
 }
 
 // ---------- Einstieg ----------
 
-export async function crawlQuelle(quelleId: number, force = false, sammelLauf = false): Promise<string> {
+// maxSeiten: Deckel für AI-Verarbeitungen; Infinity für manuelle Force-Crawls einzelner Quellen
+export async function crawlQuelle(quelleId: number, force = false, sammelLauf = false, maxSeiten = MAX_SEITEN): Promise<string> {
   const quelle = await prisma.quelle.findUniqueOrThrow({ where: { id: quelleId } })
   const ctx = await ladeKontext(quelle.disziplin)
   try {
     await pruefeOeffentlich(quelle.url) // SSRF-Schutz — kann sich auch nachträglich ändern (DNS)
     const resultat =
-      quelle.typ === 'GIT' ? await crawlGit(quelle, ctx, force)
-      : quelle.typ === 'CLOUD' ? await crawlCloud(quelle, ctx, force)
-      : await crawlWebsite(quelle, ctx, force)
+      quelle.typ === 'GIT' ? await crawlGit(quelle, ctx, force, maxSeiten)
+      : quelle.typ === 'CLOUD' ? await crawlCloud(quelle, ctx, force, maxSeiten)
+      : await crawlWebsite(quelle, ctx, force, maxSeiten)
     const maxScore = await prisma.material.aggregate({ where: { quelleId }, _max: { qualityScore: true } })
     const u = new URL(quelle.url)
     const titel = quelle.titel ?? (quelle.typ === 'GIT' ? u.pathname.replace(/^\/|\.git$/g, '') : u.hostname)
@@ -939,8 +940,9 @@ export async function crawlQuelle(quelleId: number, force = false, sammelLauf = 
 }
 
 // Nächtlicher Lauf: alle nicht endgültig toten Quellen.
-// Aufruf: npm run crawl [-- --force] [-- --ab=<quelleId>]
+// Aufruf: npm run crawl [-- --force] [-- --ab=<quelleId>] [-- --quelle=<quelleId>]
 // --force: Änderungserkennung umgehen, alles neu klassifizieren; --ab: erst ab dieser Quellen-Id
+// --quelle: nur diese eine Quelle, ohne Deckel (kein Verzeichnis-Sync)
 // ab: erst ab dieser Quellen-Id (inklusive) — Wiedereinstieg, wenn ein Force-Crawl
 // abgebrochen ist (z.B. AI-Credits aufgebraucht), ohne die fertigen Quellen nochmals zu bezahlen
 export async function crawlAlle(force = false, ab = 0) {
@@ -959,5 +961,10 @@ export async function crawlAlle(force = false, ab = 0) {
 
 if (process.argv[1]?.endsWith('crawler.ts') || process.argv[1]?.endsWith('crawler.js')) {
   const ab = Number(process.argv.find((a) => a.startsWith('--ab='))?.slice(5) ?? 0)
-  crawlAlle(process.argv.includes('--force'), ab).then(() => prisma.$disconnect())
+  const einzeln = Number(process.argv.find((a) => a.startsWith('--quelle='))?.slice(9) ?? 0)
+  const force = process.argv.includes('--force')
+  const lauf = einzeln
+    ? crawlQuelle(einzeln, force, false, Infinity).then((r) => console.log(r)).then(() => flushTagVorschlaege())
+    : crawlAlle(force, ab)
+  lauf.then(() => prisma.$disconnect())
 }
