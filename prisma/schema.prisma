@@ -24,7 +24,7 @@ model Quelle {
   id            Int        @id @default(autoincrement())
   url           String     @unique // normalisiert
   typ           String // WEBSITE | GIT | CLOUD
-  fach          String? // optionaler Hinweis der Melder:in (Fach-Code, z.B. "informatik")
+  disziplin     String? // optionaler Hinweis der Melder:in (Disziplin-Code, z.B. "informatik")
   titel         String?
   beschreibung  String?
   qualityScore  Int? // 0–100 von der AI; <20 = nicht aufgenommen
@@ -38,38 +38,39 @@ model Quelle {
   materialien   Material[]
 }
 
-// Fach (Informatik) ist die Navigations- und Melde-Einheit; ein Fach hat einen oder mehrere
-// Lehrpläne (RLP 2024: Grundlagenfach, Ergänzungsfach, Schwerpunktfach). Die Hierarchie
-// darunter: Lehrplan → Lerngebiet → Teilgebiet → Kompetenz (feinste Ebene).
-// Admins sollen pro Fach Lehrpläne mit diesen Ebenen erfassen können.
-model Fach {
-  id         Int        @id @default(autoincrement())
-  code       String     @unique // z.B. "informatik"
-  name       String // z.B. "Informatik"
-  lehrplaene Lehrplan[]
+// Disziplin (Informatik) ist die übergeordnete Einheit fürs Melden und Suchen; eine Disziplin
+// hat ein oder mehrere Fächer im Sinn des RLP 2024 (Grundlagenfach, Ergänzungsfach,
+// Schwerpunktfach). Die Hierarchie darunter: Fach → Lerngebiet → Teilgebiet → Kompetenz
+// (feinste Ebene). Admins sollen pro Disziplin Fächer mit diesen Ebenen erfassen können.
+model Disziplin {
+  id      Int    @id @default(autoincrement())
+  code    String @unique // z.B. "informatik"
+  name    String // z.B. "Informatik"
+  faecher Fach[]
 }
 
-model Lehrplan {
+model Fach {
   id          Int          @id @default(autoincrement())
   code        String       @unique // z.B. "informatik-gf" — steckt in URLs und AI-Zuordnungscodes
-  name        String // z.B. "Grundlagenfach"
-  url         String? // Link aufs Original (RLP-PDF)
-  fach        Fach         @relation(fields: [fachId], references: [id], onDelete: Cascade)
-  fachId      Int
+  kuerzel     String // z.B. "Ginf"
+  name        String // z.B. "Grundlagenfach Informatik"
+  url         String? // Link auf den Lehrplan (RLP-PDF oder kantonaler Fachlehrplan)
+  disziplin   Disziplin    @relation(fields: [disziplinId], references: [id], onDelete: Cascade)
+  disziplinId Int
   lerngebiete Lerngebiet[]
 
-  @@index([fachId])
+  @@index([disziplinId])
 }
 
 model Lerngebiet {
   id          Int          @id @default(autoincrement())
-  lehrplan    Lehrplan     @relation(fields: [lehrplanId], references: [id], onDelete: Cascade)
-  lehrplanId  Int
+  fach        Fach         @relation(fields: [fachId], references: [id], onDelete: Cascade)
+  fachId      Int
   nummer      Int // "1"
   name        String // "Algorithmen und Programme"
   teilgebiete Teilgebiet[]
 
-  @@unique([lehrplanId, nummer])
+  @@unique([fachId, nummer])
 }
 
 model Teilgebiet {

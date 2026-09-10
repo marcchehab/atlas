@@ -22,7 +22,7 @@ export function kürze(s: string, n: number): string {
 
 export const BASE_URL = process.env.BASE_URL ?? 'https://atlas.eduskript.org'
 
-// SEO-Slugs: Keywords in die URL (/lehrplan/…/k/1.2.1-begriff-algorithmus-definieren).
+// SEO-Slugs: Keywords in die URL (/fach/…/k/1.2.1-begriff-algorithmus-definieren).
 // Stoppwörter raus, damit die tragenden Begriffe vorne stehen; max 5 Wörter.
 const STOPP = new Set('der die das den dem des ein eine einer eines einem und oder mit für von im in zu sie sich auf aus bei als z b zb ihre seine indem mittels können'.split(' '))
 export function slug(s: string): string {
@@ -36,9 +36,9 @@ export function slug(s: string): string {
     .slice(0, 5)
     .join('-')
 }
-// Teilgebiet-/Kompetenz-Codes («1.2») gelten pro Lehrplan — darum hängen die Seiten am Lehrplan, nicht am Fach.
-export const tgPfad = (lehrplan: string, code: string, name: string) => `/lehrplan/${lehrplan}/t/${code}-${slug(name)}`
-export const koPfad = (lehrplan: string, code: string, text: string) => `/lehrplan/${lehrplan}/k/${code}-${slug(text)}`
+// Teilgebiet-/Kompetenz-Codes («1.2») gelten pro Fach — darum hängen die Seiten am Fach, nicht an der Disziplin.
+export const tgPfad = (fach: string, code: string, name: string) => `/fach/${fach}/t/${code}-${slug(name)}`
+export const koPfad = (fach: string, code: string, text: string) => `/fach/${fach}/k/${code}-${slug(text)}`
 export const grossErst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 export interface SeoDaten {
@@ -124,7 +124,7 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
     const q = filterQuery()
     if (!el) { // Seite ohne Liste (z.B. Suche): zum Fach springen, Filter reist per localStorage mit
       const fach = document.querySelector('aside select')
-      if (fach) location.href = '/lehrplan/' + fach.value
+      if (fach) location.href = '/fach/' + fach.value
       return
     }
     history.replaceState(null, '', location.pathname + (q ? '?' + q : ''))
@@ -140,7 +140,7 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
     zeigeFilterTab()
     document.body.addEventListener('htmx:afterSwap', (e) => { if (e.target.id === 'materialliste') zeigeFilterTab() })
     if (!document.getElementById('materialliste')) return
-    // Lehrplanwechsel: gemerkte Filter/Suche gehören zum alten Lehrplan → zurücksetzen
+    // Fachwechsel: gemerkte Filter/Suche gehören zum alten Fach → zurücksetzen
     const fachSel = document.querySelector('aside select')
     if (fachSel && localStorage.getItem('f-fach') !== fachSel.value) {
       localStorage.setItem('f-fach', fachSel.value)
@@ -334,9 +334,9 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
 }
 
 export interface SidebarDaten {
-  lehrplaene: { code: string; name: string; fach: string }[] // Dropdown, nach Fach gruppiert
-  lpCode: string
-  fachCode: string // fürs Melden-Formular (Fach-Hinweis)
+  faecher: { code: string; kuerzel: string; name: string; disziplin: string }[] // Dropdown, nach Disziplin gruppiert
+  fachCode: string
+  disziplinCode: string // fürs Melden-Formular (Disziplin-Hinweis)
   url: string | null
   lerngebiete: {
     nummer: number
@@ -363,7 +363,7 @@ export function sidebar(d: SidebarDaten): string {
   return `<div class="logo-svg" style="width:170px;margin:0 auto .3rem">${LOGO_INLINE}</div>
 <div class="untertitel" style="text-align:center">Unterrichtsmaterialien Schweizer Gymnasien</div>
 <div class="pillbar">
-  <div class="pill melden-pill"><a class="pbtn" href="/melden?fach=${esc(d.fachCode)}" title="Nur ein Link — den Rest macht Atlas">+ Quelle melden</a></div>
+  <div class="pill melden-pill"><a class="pbtn" href="/melden?disziplin=${esc(d.disziplinCode)}" title="Nur ein Link — den Rest macht Atlas">+ Quelle melden</a></div>
   ${
     d.user
       ? `<div class="pill">
@@ -372,17 +372,17 @@ export function sidebar(d: SidebarDaten): string {
       : `<div class="pill"><a class="pbtn" href="/login" title="Sign in">${login}</a></div>`
   }
 </div>
-<select onchange="location='/lehrplan/'+this.value">
-${[...new Set(d.lehrplaene.map((l) => l.fach))].map((fach) => `<optgroup label="${esc(fach)}">${d.lehrplaene.filter((l) => l.fach === fach).map((l) => `<option value="${esc(l.code)}"${l.code === d.lpCode ? ' selected' : ''}>${esc(l.name)}</option>`).join('')}</optgroup>`).join('')}
+<select onchange="location='/fach/'+this.value">
+${[...new Set(d.faecher.map((f) => f.disziplin))].map((disziplin) => `<optgroup label="${esc(disziplin)}">${d.faecher.filter((f) => f.disziplin === disziplin).map((f) => `<option value="${esc(f.code)}"${f.code === d.fachCode ? ' selected' : ''}>${esc(f.kuerzel)} – ${esc(f.name)}</option>`).join('')}</optgroup>`).join('')}
 </select>
 ${d.lerngebiete
   .map(
     (lg) => `<div class="lg">${lg.nummer}. ${esc(lg.name)}</div>
 ${lg.teilgebiete
   .map(
-    (tg) => `<a class="tg${d.aktiv === 'T' + tg.code ? ' aktiv' : ''}" href="${tgPfad(d.lpCode, tg.code, tg.name)}">${tg.code} ${esc(tg.name)} <span class="anzahl">${tg.anzahl || ''}</span></a>
+    (tg) => `<a class="tg${d.aktiv === 'T' + tg.code ? ' aktiv' : ''}" href="${tgPfad(d.fachCode, tg.code, tg.name)}">${tg.code} ${esc(tg.name)} <span class="anzahl">${tg.anzahl || ''}</span></a>
 ${tg.kompetenzen
-  .map((ko) => `<a class="ko${d.aktiv === 'K' + ko.code ? ' aktiv' : ''}" href="${koPfad(d.lpCode, ko.code, ko.text)}" title="${esc(ko.text)}">${esc(kürze(ko.text, 48))} <span class="anzahl">${ko.anzahl || ''}</span></a>`)
+  .map((ko) => `<a class="ko${d.aktiv === 'K' + ko.code ? ' aktiv' : ''}" href="${koPfad(d.fachCode, ko.code, ko.text)}" title="${esc(ko.text)}">${esc(kürze(ko.text, 48))} <span class="anzahl">${ko.anzahl || ''}</span></a>`)
   .join('\n')}`
   )
   .join('\n')}`
@@ -464,7 +464,7 @@ export interface MaterialKarte {
   tags: string[]
   format: string | null
   zuordnungen: { code: string; label: string; href: string }[]
-  fachCode: string // Fach-Kontext der Seite — Tag-Links bleiben im Fach
+  disziplinCode: string // Disziplin-Kontext der Seite — Tag-Links bleiben in der Disziplin
   aiScore: number // öffentlich «AI-Score» (intern qualityScore)
   score: number
   meinVote: number // +1 | 0 | -1
@@ -565,7 +565,7 @@ export function materialKarte(m: MaterialKarte, eingeloggt: boolean, admin = fal
         m.url.includes('#') ? ` · 📄 <span title="Datei im geteilten Ordner — der Link öffnet den Ordner">${esc(m.url.split('#')[1])}</span>` : ''
       }</div>
       <p style="margin:.2rem 0">${esc(m.zusammenfassung)}</p>
-      <div>${m.format ? `<span class="tag format">${esc(m.format)}</span>` : ''}${m.tags.map((t) => `<a class="tag" href="/suche?tag=${encodeURIComponent(t)}&fach=${encodeURIComponent(m.fachCode)}">${esc(t)}</a>`).join('')}
+      <div>${m.format ? `<span class="tag format">${esc(m.format)}</span>` : ''}${m.tags.map((t) => `<a class="tag" href="/suche?tag=${encodeURIComponent(t)}&disziplin=${encodeURIComponent(m.disziplinCode)}">${esc(t)}</a>`).join('')}
       ${m.zuordnungen.map((z) => `<a class="tag ziel" href="${z.href}" title="${esc(z.label)}">${esc(z.code)}</a>`).join('')}</div>
     </div>
     <a class="aiscore" href="/sortierung" title="AI-Score: ${m.aiScore} · ${bandName(m.aiScore)} — wie wird sortiert?"><span class="zahl">${m.aiScore}</span><span class="label">AI-Score</span></a>

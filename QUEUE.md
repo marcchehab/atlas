@@ -4,7 +4,7 @@
 
 ## To do (von oben nach unten, jeweils zu doing kopieren)
 
-- Admin-UI: Lehrplan pro Fach erfassen/ändern
+- Admin-UI: Fach (Lehrplan-Hierarchie) pro Disziplin erfassen/ändern
 
 ## Probably never
 - Edulog als dritter Auth-Provider (braucht sponsernde Schule)

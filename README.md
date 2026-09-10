@@ -30,7 +30,7 @@ Node/TypeScript-Monolith: Express + server-gerendertes HTML + HTMX, Prisma auf S
 npm install
 python3 -m venv .venv && .venv/bin/pip install trafilatura
 npx prisma migrate deploy && npx prisma generate
-npm run seed        # Lehrplan (27 Kompetenzen GF Informatik) + Tags
+npm run seed        # Disziplinen/Fächer mit RLP-Kompetenzen (Ginf, Gphy, Gmat, Sinf AG) + Tags
 npm run dev         # http://localhost:3000
 ```
 
@@ -42,7 +42,7 @@ Docker Compose (App + Caddy mit Auto-TLS), SQLite als Bind-Mount, nächtlicher C
 
 ## Status
 
-Prototyp in aktiver Entwicklung. Es fehlen u.a. Admin-UI (Lehrplan-Erfassung, Tag-Kuration), Tag-Vorschlags-Voting, Rate-Limits und Mail bei toten Links.
+Prototyp in aktiver Entwicklung. Es fehlen u.a. Admin-UI (Fach-Erfassung, Tag-Kuration), Tag-Vorschlags-Voting, Rate-Limits und Mail bei toten Links.
 
 ## Lizenz
 

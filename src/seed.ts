@@ -295,37 +295,37 @@ const INFORMATIK_SPF_AG: LerngebietDef[] = [
 
 const SPF_AG_URL = 'https://www.ag.ch/de/medien/medienmitteilungen?mm=aargauer-gymnasium-ab-2027-28-neu-aufgestellt-8398f540-efa7-48f9-bdc3-1623bd0e47ad_de'
 
-interface LehrplanDef { code: string; name: string; url: string | null; lerngebiete: LerngebietDef[] }
-const FAECHER: { code: string; name: string; lehrplaene: LehrplanDef[] }[] = [
-  { code: 'informatik', name: 'Informatik', lehrplaene: [
-    { code: 'informatik-gf', name: 'Grundlagenfach', url: LEHRPLAN_URL, lerngebiete: INFORMATIK },
-    { code: 'informatik-spf-ag', name: 'Schwerpunktfach «Informatik und ihre Anwendungen» (Kanton AG)', url: SPF_AG_URL, lerngebiete: INFORMATIK_SPF_AG },
+interface FachDef { code: string; kuerzel: string; name: string; url: string | null; lerngebiete: LerngebietDef[] }
+const DISZIPLINEN: { code: string; name: string; faecher: FachDef[] }[] = [
+  { code: 'informatik', name: 'Informatik', faecher: [
+    { code: 'informatik-gf', kuerzel: 'Ginf', name: 'Grundlagenfach Informatik', url: LEHRPLAN_URL, lerngebiete: INFORMATIK },
+    { code: 'informatik-spf-ag', kuerzel: 'Sinf AG', name: 'Schwerpunktfach «Informatik und ihre Anwendungen» (Kanton AG)', url: SPF_AG_URL, lerngebiete: INFORMATIK_SPF_AG },
   ] },
-  { code: 'physik', name: 'Physik', lehrplaene: [{ code: 'physik-gf', name: 'Grundlagenfach', url: LEHRPLAN_URL, lerngebiete: PHYSIK }] },
-  { code: 'mathematik', name: 'Mathematik', lehrplaene: [{ code: 'mathematik-gf', name: 'Grundlagenfach', url: LEHRPLAN_URL, lerngebiete: MATHEMATIK }] },
+  { code: 'physik', name: 'Physik', faecher: [{ code: 'physik-gf', kuerzel: 'Gphy', name: 'Grundlagenfach Physik', url: LEHRPLAN_URL, lerngebiete: PHYSIK }] },
+  { code: 'mathematik', name: 'Mathematik', faecher: [{ code: 'mathematik-gf', kuerzel: 'Gmat', name: 'Grundlagenfach Mathematik', url: LEHRPLAN_URL, lerngebiete: MATHEMATIK }] },
 ]
 
 const TAGS = ['python', 'java', 'robotik', 'blender', 'spielerisch', 'formell', 'unplugged', 'arbeitsblatt', 'projekt', 'theorie', 'experiment', 'simulation', 'video']
 
 async function seed() {
   await initDb()
-  for (const fachDef of FAECHER) {
-    const fach = await prisma.fach.upsert({
-      where: { code: fachDef.code },
-      create: { code: fachDef.code, name: fachDef.name },
-      update: { name: fachDef.name },
+  for (const disziplinDef of DISZIPLINEN) {
+    const disziplin = await prisma.disziplin.upsert({
+      where: { code: disziplinDef.code },
+      create: { code: disziplinDef.code, name: disziplinDef.name },
+      update: { name: disziplinDef.name },
     })
-    for (const def of fachDef.lehrplaene) {
-    const lehrplan = await prisma.lehrplan.upsert({
+    for (const def of disziplinDef.faecher) {
+    const fach = await prisma.fach.upsert({
       where: { code: def.code },
-      create: { code: def.code, name: def.name, url: def.url, fachId: fach.id },
-      update: { name: def.name, url: def.url, fachId: fach.id },
+      create: { code: def.code, kuerzel: def.kuerzel, name: def.name, url: def.url, disziplinId: disziplin.id },
+      update: { kuerzel: def.kuerzel, name: def.name, url: def.url, disziplinId: disziplin.id },
     })
     let nKomp = 0
     for (const [nummer, name, teilgebiete] of def.lerngebiete) {
       const lg = await prisma.lerngebiet.upsert({
-        where: { lehrplanId_nummer: { lehrplanId: lehrplan.id, nummer } },
-        create: { lehrplanId: lehrplan.id, nummer, name },
+        where: { fachId_nummer: { fachId: fach.id, nummer } },
+        create: { fachId: fach.id, nummer, name },
         update: { name },
       })
       for (const [code, tgName, kompetenzen] of teilgebiete) {
@@ -342,7 +342,7 @@ async function seed() {
         }
       }
     }
-    console.log(`Seed ok: ${fachDef.name} ${def.name} mit ${def.lerngebiete.length} Lerngebieten, ${nKomp} Kompetenzen`)
+    console.log(`Seed ok: ${def.kuerzel} ${def.name} mit ${def.lerngebiete.length} Lerngebieten, ${nKomp} Kompetenzen`)
     }
   }
   for (const name of TAGS) {

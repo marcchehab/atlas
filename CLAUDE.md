@@ -8,7 +8,7 @@ Lehrpersonen melden nur einen Link auf ihre Quelle an — den Rest macht der Die
 
 1. **Connectors** ziehen das Material automatisiert zusammen (Websites/Crawler, Cloud-Speicher, Git-Repos). Nur gelesen, nicht konvertiert — die Sammlung speichert hauptsächlich Links (entschärft die Urheberrechtsfrage).
 2. **Eine AI** ordnet jedes Material den Lernzielen des Lehrplans zu und erzeugt pro Eintrag: Mini-Zusammenfassung + Link auf die Originalquelle + Tags.
-3. **Raster:** Rahmenlehrplan Maturitätsschulen (EDK, 2024), feinste Lernziel-Ebene. Für Informatik: Kapitel Grundlagenfach ab S. 67. Deckt ein Material mehrere Ziele ab, gibt es mehrere Einträge. (Lektionendotation regelt der RLP nicht — kantonal.)
+3. **Raster:** Rahmenlehrplan Maturitätsschulen (EDK, 2024), feinste Lernziel-Ebene. Begriffe: **Disziplin** = ganzes Gebiet (Informatik), **Fach** = Fach im RLP-Sinn mit eigenem Lehrplan und Kürzel (Ginf = Grundlagenfach Informatik, Sinf AG = kantonales Schwerpunktfach), darunter Lerngebiet → Teilgebiet → Kompetenz. «Lehrplan» meint nur noch das Dokument. Für Informatik: Kapitel Grundlagenfach ab S. 67. Deckt ein Material mehrere Ziele ab, gibt es mehrere Einträge. (Lektionendotation regelt der RLP nicht — kantonal.)
 4. **Tags** (z.B. python, spielerisch, formell): kuratiertes Set; die AI darf neue vorschlagen, ein Vorschlag mit 3 Upvotes wird zum Tag, Admins können direkt erstellen.
 5. **Upvotes** auch auf Materialien → Ranking innerhalb eines Lernziels.
 6. **Registrierung** so schlank wie möglich: Nickname, E-Mail, Link. Keine Schulzugehörigkeit, keine Qualitätskontrolle — Vertrauen in die Community.
