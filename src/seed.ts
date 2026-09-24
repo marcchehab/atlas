@@ -2,7 +2,7 @@ import { prisma, initDb } from './db.js'
 
 // Rahmenlehrplan Maturitätsschulen (EDK 2024), Grundlagenfächer,
 // jeweils Kapitel 4 «Lerngebiete und fachliche Kompetenzen»
-// (Informatik PDF S. 69–70, Physik PDF S. 79–81, Mathematik PDF S. 65–67).
+// (Informatik PDF S. 69–70, Physik PDF S. 79–81, Mathematik PDF S. 65–67, Chemie PDF S. 76–78).
 // Kompetenz-Codes (1.2.1 …) sind eigene Zählung — der RLP nummeriert Kompetenzen nicht.
 // Überfachliche Marker des RLP ((WP), (DIG), (BNE), (ID), (PB)) sind weggelassen.
 const LEHRPLAN_URL = 'https://edudoc.ch/record/232281/files/Rahmenlehrplan-maturitatsschulen.pdf'
@@ -293,6 +293,87 @@ const INFORMATIK_SPF_AG: LerngebietDef[] = [
   ]],
 ]
 
+const CHEMIE: LerngebietDef[] = [
+  [1, 'Laborarbeit', [
+    ['1.1', 'Erkenntnisgewinnung', [
+      'aus der Durchführung eigener Experimente Erkenntnisse gewinnen',
+    ]],
+    ['1.2', 'Praktische Arbeiten', [
+      'einfache Experimente durchführen',
+      'sich über das Gefahrenpotential von Stoffen für Mensch und Umwelt informieren und die Warnhinweise sinnvoll umsetzen',
+    ]],
+  ]],
+  [2, 'Stoffe', [
+    ['2.1', 'Stoffeigenschaften und Teilchenkonzept', [
+      'chemische Stoffe und ihre Eigenschaften beschreiben',
+      'mit Hilfe von Teilchenmodellen Stoffeigenschaften erklären',
+    ]],
+    ['2.2', 'Trennverfahren', [
+      'Stoffmischungen und Reinstoffe beschreiben und unterscheiden',
+      'passende Trennverfahren finden',
+    ]],
+  ]],
+  [3, 'Atombau und Periodensystem der Elemente', [
+    ['3.1', 'Modellbegriff', [
+      'Bedeutung und Grenzen von wissenschaftlichen Modellen erklären',
+    ]],
+    ['3.2', 'Atommodelle', [
+      'den Atombau aufbauend aus Elementarteilchen mit Modellen beschreiben',
+      'ein angemessenes Atommodell zur Beschreibung der Materie verwenden',
+    ]],
+    ['3.3', 'Periodensystem der Elemente', [
+      'Grundlagen der Ordnung der Elemente im Periodensystem erklären',
+    ]],
+  ]],
+  [4, 'Chemische Bindungen, Eigenschaften und zwischenmolekulare Kräfte', [
+    ['4.1', 'Chemische Bindung', [
+      'die drei Bindungstypen (metallisch, ionisch, kovalent) beschreiben',
+      'mit den Bindungsmodellen Stoffeigenschaften erklären',
+      'Formeln und Stoffnamen in Verbindung bringen',
+    ]],
+    ['4.2', 'Zwischenmolekulare Kräfte', [
+      'den Einfluss zwischenmolekularer Kräfte auf die Stoffeigenschaften erklären',
+    ]],
+  ]],
+  [5, 'Chemische Reaktion', [
+    ['5.1', 'Reaktionsgleichung und Stöchiometrie', [
+      'Reaktionsgleichungen formulieren',
+      'stöchiometrische Berechnungen mit Hilfe der Stoffmengeneinheit Mol durchführen',
+      'quantitative Betrachtungen von Stoffflüssen und Stoffumwandlungen durchführen',
+    ]],
+    ['5.2', 'Grundlagen der chemischen Thermodynamik', [
+      'Energieumwandlungen und ihre Bedeutung für den Verlauf chemischer Reaktionen beschreiben',
+    ]],
+    ['5.3', 'Reaktionsgeschwindigkeit', [
+      'den Einfluss verschiedener Faktoren, insbesondere von Aktivierungsenergie und Katalyse, auf die Reaktionsgeschwindigkeit erklären',
+    ]],
+    ['5.4', 'Chemisches Gleichgewicht', [
+      'das Prinzip des dynamischen chemischen Gleichgewichtes erklären',
+      'Gleichgewichtsreaktionen mit dem Massenwirkungsgesetz beschreiben',
+      'den Einfluss verschiedener Faktoren auf das chemische Gleichgewicht voraussagen',
+    ]],
+    ['5.5', 'Säure-Base-Reaktionen', [
+      'Säure-Base-Reaktionen formulieren und mit der Übertragung von Wasserstoffionen erklären',
+      'den pH-Wert definieren, messen und für einfache Fälle berechnen',
+      'die Bedeutung von Säure-Base-Reaktionen in Anwendungen aufzeigen',
+    ]],
+    ['5.6', 'Redoxreaktionen', [
+      'Redoxreaktionen formulieren und mit der Übertragung von Elektronen erklären',
+      'Gleichungen von einfachen Redoxreaktionen analysieren und ausgleichen',
+      'die Bedeutung von Redoxreaktionen in Anwendungen aufzeigen',
+    ]],
+  ]],
+  [6, 'Organische Chemie und Biochemie', [
+    ['6.1', 'Struktur und Eigenschaften von organischen Stoffen', [
+      'wechselseitige Beziehungen von Struktur und Eigenschaften von Kohlenstoffverbindungen anwenden',
+    ]],
+    ['6.2', 'Bedeutung und Anwendungen von organischen Stoffen', [
+      'Verknüpfungen der organischen Chemie mit dem Alltag, der technischen Welt und der belebten Natur aufzeigen',
+      'die Grundlagen der organischen Chemie auf biochemische Fragestellungen anwenden',
+    ]],
+  ]],
+]
+
 const SPF_AG_URL = 'https://www.ag.ch/de/medien/medienmitteilungen?mm=aargauer-gymnasium-ab-2027-28-neu-aufgestellt-8398f540-efa7-48f9-bdc3-1623bd0e47ad_de'
 
 interface FachDef { code: string; kuerzel: string; name: string; url: string | null; lerngebiete: LerngebietDef[] }
@@ -303,6 +384,7 @@ const DISZIPLINEN: { code: string; name: string; faecher: FachDef[] }[] = [
   ] },
   { code: 'physik', name: 'Physik', faecher: [{ code: 'physik-gf', kuerzel: 'Gphy', name: 'Grundlagenfach Physik', url: LEHRPLAN_URL, lerngebiete: PHYSIK }] },
   { code: 'mathematik', name: 'Mathematik', faecher: [{ code: 'mathematik-gf', kuerzel: 'Gmat', name: 'Grundlagenfach Mathematik', url: LEHRPLAN_URL, lerngebiete: MATHEMATIK }] },
+  { code: 'chemie', name: 'Chemie', faecher: [{ code: 'chemie-gf', kuerzel: 'Gche', name: 'Grundlagenfach Chemie', url: LEHRPLAN_URL, lerngebiete: CHEMIE }] },
 ]
 
 const TAGS = ['python', 'java', 'robotik', 'blender', 'spielerisch', 'formell', 'unplugged', 'arbeitsblatt', 'projekt', 'theorie', 'experiment', 'simulation', 'video']

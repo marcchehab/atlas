@@ -30,7 +30,7 @@ Node/TypeScript-Monolith: Express + server-gerendertes HTML + HTMX, Prisma auf S
 npm install
 python3 -m venv .venv && .venv/bin/pip install trafilatura
 npx prisma migrate deploy && npx prisma generate
-npm run seed        # Disziplinen/Fächer mit RLP-Kompetenzen (Ginf, Gphy, Gmat, Sinf AG) + Tags
+npm run seed        # Disziplinen/Fächer mit RLP-Kompetenzen (Ginf, Gphy, Gmat, Gche, Sinf AG) + Tags
 npm run dev         # http://localhost:3000
 ```
 
