@@ -24,14 +24,14 @@ export const SCORE_PROMPT = `1. qualityScore 0–100: Taugt das als Unterrichtsm
    Auch ein gutes Werkzeug kann sehr gut bewertet werden: interaktive Simulatoren, Rechner, Editoren oder Spiele, mit denen Schüler:innen etwas ausprobieren und verstehen (z.B. ein Little-Man-Computer-Simulator), gehören in die oberen Bänder, auch wenn sie wenig erklärenden Text enthalten. Erkenne Werkzeuge auch an Bedienelementen und Beschreibungen, nicht nur an Erklärtext.
    Bewerte nur, was im Text selbst steht, nicht was verlinkt oder angekündigt wird.
    Bänder (innerhalb eines Bands graduell abstufen):
-   0–20 untauglich: kein Unterrichtsinhalt — Navigation, Portal, Index, Impressum, Linkliste, Fragment, falsches Niveau.
+   0–20 untauglich: kein Unterrichtsinhalt — Navigation, Portal, Index, Impressum, Linkliste, Fragment — oder didaktisch unbrauchbar: fachlich falsch, wirr, unverständlich. Das gilt auf jedem Niveau; ein Material für eine andere Stufe ist deswegen nicht untauglich (dafür gibt es den Niveau-Score).
    21–40 Rohmaterial: Inhalt vorhanden, aber ohne Einstieg, ohne Beispiele oder ohne Lösungen — Folien, Notizen, nackte Theorie, Aufgaben ohne Lösungen. Nur mit Lehrperson nutzbar.
    41–60 solide: verständlich aufgebaut — Erklärung mit Beispielen oder Übungen mit Lösungen, Begriffe sauber. Funktioniert im Unterricht, ist aber Routine.
    61–80 lebendig: solide, und dazu etwas, das Schülerinnen und Schüler packt — spielerischer Zugang, überraschendes Beispiel, Rätsel, Projekt, Wettbewerb, Humor, interaktives Werkzeug, echter Bezug zu ihrer Welt. Auch ein Übungsblatt, wenn die Aufgaben interessant und spannend sind.
    81–100 begeisternd: didaktisch vollständig — Intuition vor Formalismus, gute Beispiele, gute Aufgaben mit Lösungen, Zusammenfassung oder Selbstcheck — und die Klasse will das machen. Oder ein Werkzeug, mit dem man das Thema selbst erkunden kann. Material, das man Kolleg:innen sofort weiterschickt.`
 
 export const SCORE_BAENDER: [number, string, string][] = [
-  [0, 'untauglich', 'kein Unterrichtsinhalt: Navigation, Portal, Linkliste'],
+  [0, 'untauglich', 'kein Unterrichtsinhalt (Navigation, Portal, Linkliste) oder didaktisch unbrauchbar'],
   [21, 'Rohmaterial', 'Inhalt ohne Einstieg, Beispiele oder Lösungen, braucht die Lehrperson dazu'],
   [41, 'solide', 'verständlich aufgebaut, mit Beispielen oder Übungen und Lösungen'],
   [61, 'lebendig', 'packt die Schüler: spielerisch, überraschend, mit Bezug zu ihrer Welt'],
