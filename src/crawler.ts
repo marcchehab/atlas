@@ -5,6 +5,7 @@ import path from 'node:path'
 import { prisma } from './db.js'
 import { extract, stripTags } from './extract.js'
 import { klassifiziere, ZuordnungsOption, verbrauchText } from './ai.js'
+import { fachAnker } from './niveau.js'
 import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
 import { syncEduskriptVerzeichnis } from './verzeichnis.js'
@@ -30,6 +31,7 @@ function fetchSeite(url: string, extraHeaders: Record<string, string> = {}): Pro
 interface KlassifikationsKontext {
   optionen: ZuordnungsOption[]
   tagNamen: string[]
+  niveauAnker: string
   teilgebiete: Awaited<ReturnType<typeof ladeKontext>>['teilgebiete']
 }
 
@@ -37,7 +39,7 @@ interface KlassifikationsKontext {
 // Teilgebiet-/Kompetenz-Codes («1.1» …) pro Fach vergeben werden und sonst kollidieren.
 // Ein Disziplin-Hinweis der Melder:in schränkt das Raster auf die Fächer dieser Disziplin ein.
 async function ladeKontext(disziplinCode?: string | null) {
-  const include = { kompetenzen: true, lerngebiet: { include: { fach: true } } } as const
+  const include = { kompetenzen: true, lerngebiet: { include: { fach: { include: { disziplin: true } } } } } as const
   let teilgebiete = await prisma.teilgebiet.findMany({
     where: disziplinCode ? { lerngebiet: { fach: { disziplin: { code: disziplinCode } } } } : {},
     include,
@@ -50,7 +52,13 @@ async function ladeKontext(disziplinCode?: string | null) {
     ...tg.kompetenzen.map((ko) => ({ code: `K:${tg.lerngebiet.fach.code}:${ko.code}`, label: `${fachPrefix(tg)}${ko.text}` })),
   ])
   const tags = await prisma.tag.findMany({ where: { status: 'AKTIV' }, select: { name: true } })
-  return { optionen, tagNamen: tags.map((t) => t.name), teilgebiete }
+  // Niveau-Anker aller Disziplinen im Raster (ohne Disziplin-Hinweis: alle), je mit Überschrift
+  const disziplinen = [...new Map(teilgebiete.map((tg) => [tg.lerngebiet.fach.disziplin.code, tg.lerngebiet.fach.disziplin.name])).entries()]
+  const niveauAnker = disziplinen
+    .map(([code, name]) => { const a = fachAnker(code); return a ? `   ${name}:\n${a.anker.split('\n').map((z) => `   ${z}`).join('\n')}` : '' })
+    .filter(Boolean)
+    .join('\n')
+  return { optionen, tagNamen: tags.map((t) => t.name), niveauAnker, teilgebiete }
 }
 
 // Ein Text (Seite oder Datei) → Klassifikation → Material mit Zuordnungen/Tags.
@@ -67,7 +75,8 @@ async function verarbeiteMaterial(
   const vorhanden = await prisma.material.findUnique({ where: { url } })
   if (vorhanden && vorhanden.contentHash === contentHash && !force) return 'unverändert'
 
-  const k = await klassifiziere(text, ctx.optionen, ctx.tagNamen)
+  const k = await klassifiziere(text, ctx.optionen, ctx.tagNamen, ctx.niveauAnker)
+  const niveau = Math.max(1, Math.min(100, Math.round(k.niveau)))
   // Eine einzelne Webseite, die >=5 ganze Teilgebiete abdecken soll, ist eine
   // Übersichts-/Portalseite — ablehnen. Ganze Skript-Repos dürfen breit sein.
   const zuBreit = istEinzelseite && k.zuordnungen.filter((c) => c.startsWith('T')).length >= 5
@@ -75,8 +84,8 @@ async function verarbeiteMaterial(
     // Abgelehntes behalten (Score <20 = öffentlich unsichtbar), damit Admins es einsehen können
     const abgelehnt = await prisma.material.upsert({
       where: { url },
-      create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), contentHash, format },
-      update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), contentHash, format },
+      create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), niveau, contentHash, format },
+      update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), niveau, contentHash, format },
     })
     await prisma.materialZuordnung.deleteMany({ where: { materialId: abgelehnt.id } })
     await prisma.materialTag.deleteMany({ where: { materialId: abgelehnt.id } })
@@ -85,8 +94,8 @@ async function verarbeiteMaterial(
 
   const material = await prisma.material.upsert({
     where: { url },
-    create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, contentHash, format },
-    update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, contentHash, format },
+    create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, niveau, contentHash, format },
+    update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, niveau, contentHash, format },
   })
 
   const zuordnungen: { teilgebietId: number; kompetenzId: number | null }[] = []

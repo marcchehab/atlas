@@ -1,5 +1,8 @@
+import { NIVEAU_PROMPT } from './niveau.js'
+
 export interface Klassifikation {
   qualityScore: number // 0–100; <20 = nicht aufgenommen
+  niveau: number // Niveau-Score 1–100 (fachliches Anspruchsniveau, siehe niveau.ts)
   titel: string
   zusammenfassung: string
   zuordnungen: string[] // Codes: "T:<fach>:1.2" (ganzes Teilgebiet) oder "K:<fach>:1.2.1" (einzelne Kompetenz)
@@ -39,7 +42,8 @@ export const bandName = (score: number) => [...SCORE_BAENDER].reverse().find(([v
 export async function klassifiziere(
   text: string,
   optionen: ZuordnungsOption[],
-  tagNamen: string[]
+  tagNamen: string[],
+  niveauAnker = '' // Fach-Anker der Disziplinen im Kontext (niveau/<disziplin>.md)
 ): Promise<Klassifikation> {
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) return mockKlassifikation(text, optionen, tagNamen)
@@ -58,7 +62,8 @@ ${SCORE_PROMPT}
 3. zusammenfassung: 2–3 Sätze auf Deutsch
 4. zuordnungen: abgedeckte Kompetenzen (K…); nur wenn ein Material ein Teilgebiet breit abdeckt, stattdessen dessen T…-Code. Leer, wenn nichts passt. Nur zuordnen, was der Text selbst unterrichtet — nicht, was er bloß erwähnt oder verlinkt. Kompetenzen mit Werkzeug-Bezug (z.B. «mittels Programmierung») nur, wenn dieses Werkzeug im Material tatsächlich eingesetzt wird — ein Tutorial zu einer Kreativ-Software ohne Programmieranteil erfüllt keine Programmier-Kompetenz.
 5. tags: passende Tags aus der erlaubten Liste
-6. neueTagVorschlaege: meist leer — nur ausnahmsweise max. 2 neue Tags (kleingeschrieben, generisch wiederverwendbar wie die erlaubten Tags), wenn ein zentraler Aspekt durch kein erlaubtes Tag abbildbar ist. Niemals Themen, die im Lehrplan-Raster oben schon vorkommen (z.B. kryptographie, netzwerke, algorithmen, datenbanken — dafür sind die Zuordnungen da). Tags beschreiben Form, Werkzeug oder Zugang, nicht das Thema. Keine Synonyme.`
+6. neueTagVorschlaege: meist leer — nur ausnahmsweise max. 2 neue Tags (kleingeschrieben, generisch wiederverwendbar wie die erlaubten Tags), wenn ein zentraler Aspekt durch kein erlaubtes Tag abbildbar ist. Niemals Themen, die im Lehrplan-Raster oben schon vorkommen (z.B. kryptographie, netzwerke, algorithmen, datenbanken — dafür sind die Zuordnungen da). Tags beschreiben Form, Werkzeug oder Zugang, nicht das Thema. Keine Synonyme.
+7. ${NIVEAU_PROMPT}${niveauAnker ? `\n   Fach-Anker (Beispiele pro Band; nimm die Anker des Fachs, zu dem das Material gehört):\n${niveauAnker}` : ''}`
 
   return mitSlot(() => mitRetry(async () => {
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -84,13 +89,14 @@ ${SCORE_PROMPT}
               additionalProperties: false,
               properties: {
                 qualityScore: { type: 'integer' },
+              niveau: { type: 'integer' },
                 titel: { type: 'string' },
                 zusammenfassung: { type: 'string' },
                 zuordnungen: { type: 'array', items: { type: 'string', enum: optionen.map((o) => o.code) } },
                 tags: { type: 'array', items: { type: 'string', enum: tagNamen } },
                 neueTagVorschlaege: { type: 'array', items: { type: 'string' } },
               },
-              required: ['qualityScore', 'titel', 'zusammenfassung', 'zuordnungen', 'tags', 'neueTagVorschlaege'],
+              required: ['qualityScore', 'niveau', 'titel', 'zusammenfassung', 'zuordnungen', 'tags', 'neueTagVorschlaege'],
             },
           },
         },
@@ -155,6 +161,7 @@ function mockKlassifikation(text: string, optionen: ZuordnungsOption[], tagNamen
   const ersteZeile = text.split('\n').find((z) => z.trim().length > 3)?.trim() ?? 'Ohne Titel'
   return {
     qualityScore: text.length < 300 ? 15 : 60,
+    niveau: 50,
     titel: ersteZeile.replace(/^#+\s*/, '').slice(0, 80),
     zusammenfassung: `[Mock ohne OPENROUTER_API_KEY] ${text.replace(/\s+/g, ' ').slice(0, 200)}…`,
     zuordnungen,
