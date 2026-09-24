@@ -355,7 +355,7 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   const geplant = new Set(queue)
   let besucht = 0
 
-  const stat = { neu: 0, aktualisiert: 0, unverändert: 0, abgelehnt: 0, duplikat: 0, fehler: 0 }
+  const stat = { neu: 0, aktualisiert: 0, unverändert: 0, abgelehnt: 0, duplikat: 0, fehler: 0, hubs: 0 }
   let ohneDownload = 0 // via Sitemap-lastmod oder HTTP 304 übersprungen (zählen auch als unverändert)
   const gesehen = new Set<string>()
   const anhangCache = new Map<string, string | null>() // Anhang-URL → extrahierter Text (null = unbrauchbar)
@@ -454,10 +454,15 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
         const hub = dateien.size > 0 &&
           (text.length < HUB_MAX_ZEICHEN || (dateien.size >= HUB_MIN_DATEIEN && text.length / dateien.size < HUB_ZEICHEN_PRO_DATEI))
         if (hub) {
-          // Dateien vorne einreihen, damit sie auch bei Deckel/Abbruch bald drankommen
+          // Dateien vorne einreihen, damit sie auch bei Deckel/Abbruch bald drankommen. Die Hub-Seite
+          // selbst ist nur ein Verzeichnis: kein Material — ein Eintrag aus früheren Crawls (als die
+          // Dateien noch angehängt wurden) verschwindet, die Dateien übernehmen.
           const neu = [...dateien.keys()].filter((d) => !geplant.has(d))
           neu.forEach((d) => geplant.add(d))
           queue.unshift(...neu)
+          await prisma.material.deleteMany({ where: { url: effektiveUrl } })
+          stat.hubs++
+          continue
         } else {
           text += await anhaengeText(dateien, anhangCache, quelle.id)
         }
@@ -498,7 +503,7 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   await Promise.all(laufend)
   const gedeckelt = queue.length > 0 || abgebrochen
   const aufraeumen = await raeumeAuf(quelle.id, gesehen, gedeckelt)
-  return `${besucht} Seiten${gedeckelt ? ` (${abgebrochen ? 'Rate-Limit-Abbruch' : `gedeckelt, ${maxSeiten}/Nacht`}, ${queue.length} offen)` : ''} via ${sitemap ? 'Sitemap' : 'Link-Spider'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert (davon ${ohneDownload} ohne Download), ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
+  return `${besucht} Seiten${gedeckelt ? ` (${abgebrochen ? 'Rate-Limit-Abbruch' : `gedeckelt, ${maxSeiten}/Nacht`}, ${queue.length} offen)` : ''} via ${sitemap ? 'Sitemap' : 'Link-Spider'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert (davon ${ohneDownload} ohne Download), ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.hubs} Hub-Seiten (→ Dateien), ${stat.fehler} Fehler${aufraeumen}`
 }
 
 // ---------- Buch-SPA-Connector (mygymer-Stil) ----------
