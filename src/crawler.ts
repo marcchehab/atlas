@@ -1021,12 +1021,14 @@ export async function crawlQuelle(quelleId: number, force = false, sammelLauf = 
 }
 
 // Nächtlicher Lauf: alle nicht endgültig toten Quellen.
-// Aufruf: npm run crawl [-- --force] [-- --ab=<quelleId>] [-- --quelle=<quelleId>]
+// Aufruf: npm run crawl [-- --force] [-- --ab=<quelleId>] [-- --quelle=<quelleId>] [-- --gedeckelt=<id>,<id>]
 // --force: Änderungserkennung umgehen, alles neu klassifizieren; --ab: erst ab dieser Quellen-Id
 // --quelle: nur diese eine Quelle, ohne Deckel (kein Verzeichnis-Sync)
 // ab: erst ab dieser Quellen-Id (inklusive) — Wiedereinstieg, wenn ein Force-Crawl
 // abgebrochen ist (z.B. AI-Credits aufgebraucht), ohne die fertigen Quellen nochmals zu bezahlen
-export async function crawlAlle(force = false, ab = 0) {
+// gedeckelt: Quellen-Ids, die bei einem Lauf ohne Deckel (MAX_SEITEN=Infinity) trotzdem den
+// Standard-Deckel behalten — riesige Quellen wie Serlo (10k+ Einzelaufgaben) sollen Atlas nicht fluten
+export async function crawlAlle(force = false, ab = 0, gedeckelt: number[] = []) {
   try {
     console.log(await syncEduskriptVerzeichnis())
   } catch (e) {
@@ -1044,7 +1046,7 @@ export async function crawlAlle(force = false, ab = 0) {
   const worker = async () => {
     for (let g = offen.shift(); g; g = offen.shift()) {
       for (const q of g) {
-        const resultat = await crawlQuelle(q.id, force, true)
+        const resultat = await crawlQuelle(q.id, force, true, gedeckelt.includes(q.id) ? 200 : MAX_SEITEN)
         console.log(`${q.url} → ${resultat}`)
       }
     }
@@ -1058,8 +1060,9 @@ if (process.argv[1]?.endsWith('crawler.ts') || process.argv[1]?.endsWith('crawle
   const ab = Number(process.argv.find((a) => a.startsWith('--ab='))?.slice(5) ?? 0)
   const einzeln = Number(process.argv.find((a) => a.startsWith('--quelle='))?.slice(9) ?? 0)
   const force = process.argv.includes('--force')
+  const gedeckelt = (process.argv.find((a) => a.startsWith('--gedeckelt='))?.slice(12) ?? '').split(',').filter(Boolean).map(Number)
   const lauf = einzeln
     ? crawlQuelle(einzeln, force, false, Infinity).then((r) => console.log(r)).then(() => flushTagVorschlaege()).then(() => console.log(verbrauchText()))
-    : crawlAlle(force, ab)
+    : crawlAlle(force, ab, gedeckelt)
   lauf.then(() => prisma.$disconnect())
 }
