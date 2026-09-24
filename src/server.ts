@@ -854,7 +854,7 @@ ${a.abschnitte.map((t) => `<details><summary>${esc(t.titel)}</summary>\n${mdZuHt
 <p>Neben dem <a href="/sortierung">Didaktik-Score</a>, der die didaktische Qualität bewertet, bekommt jedes Material einen <strong>Niveau-Score</strong> von 1 bis 100.
 Er beantwortet eine andere Frage: <em>Für welche Bildungsstufe ist der Inhalt fachlich gemacht?</em> Das ist kein Qualitätsurteil, sondern eine Frage der Passung.
 Ein gutes Einstiegsmaterial ist so wertvoll wie eine anspruchsvolle Vertiefung. Über den Niveau-Score findet man gezielt das eine oder das andere.</p>
-<p class="meta">Der Niveau-Score ist in Vorbereitung. Diese Seite dokumentiert seine Grundlage.</p>
+<p class="hinweis">⚠ Wir sind gerade dabei, das Niveau zu eruieren. Die Niveau-Werte sind noch nicht korrekt — bitte vorerst nicht darauf verlassen. Diese Seite dokumentiert den aktuellen Stand der Methode.</p>
 <h2>Die fünf Bänder</h2>
 <p>Die Skala ist an der Bildungsstufe verankert, nicht an einem Fach. Darum bedeutet 41–60 in jedem Fach dasselbe: passt für eine Gymnasialklasse im Grundlagenfach.</p>
 <table>

@@ -246,6 +246,7 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
   .fkat.mit-punkt .punkt { display: inline-block; }
   .sortwahl { cursor: default; }
   .sortwahl select { font: inherit; font-size: .8rem; color: var(--fg); background: var(--card); border: 1px solid var(--rand); border-radius: 6px; padding: .1rem .3rem; }
+  .nivwarnung { flex-basis: 100%; margin: .3rem 0 0; font-size: .8rem; }
   .nivpresets { display: flex; gap: .4rem; align-items: center; margin-left: .6rem; }
   .fchips { display: none; align-items: center; gap: .4rem; flex-wrap: wrap; }
   .qchip { border: 1px solid var(--rand); background: var(--card); color: var(--fg); border-radius: 999px; padding: .1rem .7rem; font-size: .78rem; cursor: pointer; }
@@ -605,7 +606,7 @@ ${kategorien
   .map(
     ([k, , werte]) => `<div class="fchips" data-k="${k}">
 ${werte.map((w) => `<button class="qchip${w.aktiv ? ' aktiv' : ''}" onclick="fltrToggle('${k}','${esc(w.wert)}')">${esc(w.label ?? w.wert)}<span class="chipzahl">${w.anzahl}</span></button>`).join('')}
-${k === 'niveau' ? `<span class="nivpresets"><button class="qchip" onclick="fltrSet('niveau',['Sek I','Übergang'])">Einstieg</button><button class="qchip" onclick="fltrSet('niveau',['Gymnasium vertieft','Hochschule'])">Spitzenförderung</button><a class="meta" href="/niveau">Was ist das?</a></span>` : ''}
+${k === 'niveau' ? `<span class="nivpresets"><button class="qchip" onclick="fltrSet('niveau',['Sek I','Übergang'])">Einstieg</button><button class="qchip" onclick="fltrSet('niveau',['Gymnasium vertieft','Hochschule'])">Spitzenförderung</button><a class="meta" href="/niveau">Was ist das?</a></span><p class="hinweis nivwarnung">⚠ Wir sind gerade dabei, das Niveau zu eruieren. Die Niveau-Werte sind noch nicht korrekt — bitte vorerst nicht darauf verlassen.</p>` : ''}
 ${k === 'tags' ? vorschlaege.map((v) => tagVorschlagChip(v, eingeloggt)).join('') : ''}
 </div>`
   )
@@ -627,7 +628,7 @@ export function materialKarte(m: MaterialKarte, eingeloggt: boolean, admin = fal
     </div>
     <div style="display:flex;flex-direction:column;gap:.4rem;align-items:flex-end">
       <div class="scores">
-    ${m.niveau != null ? `<a class="didaktikscore niveauscore" href="/niveau" title="Niveau-Score: ${m.niveau} · ${esc(m.niveauBand)} — wie wird das bestimmt?"><span class="oben"><span class="zahl">${m.niveau}</span><span class="klein">KI</span></span><span class="nlabel">Niveau-Score</span></a>` : ''}
+    ${m.niveau != null ? `<a class="didaktikscore niveauscore" href="/niveau" title="Niveau-Score (vorläufig, noch nicht korrekt): ${m.niveau} · ${esc(m.niveauBand)} — wie wird das bestimmt?"><span class="oben"><span class="zahl">${m.niveau}</span><span class="klein">KI</span></span><span class="nlabel">Niveau-Score</span></a>` : ''}
       ${rangGruppe(m, eingeloggt)}
       </div>
       ${admin ? `<button class="pfeil" title="Karte ausblenden (Admin)" hx-post="/admin/material/${m.id}/verstecken" hx-target="closest .karte" hx-swap="outerHTML" hx-confirm="Karte ausblenden?">✕</button>` : ''}
