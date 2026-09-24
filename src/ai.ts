@@ -44,7 +44,7 @@ export async function klassifiziere(
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) return mockKlassifikation(text, optionen, tagNamen)
 
-  const prompt = `Du klassifizierst Unterrichtsmaterial für Schweizer Gymnasien nach Lehrplänen (Rahmenlehrplan 2024 sowie kantonale Fachlehrpläne, z.B. Schwerpunktfächer).
+  const anweisung = `Du klassifizierst Unterrichtsmaterial für Schweizer Gymnasien nach Lehrplänen (Rahmenlehrplan 2024 sowie kantonale Fachlehrpläne, z.B. Schwerpunktfächer).
 
 Lehrplan-Raster (T… = ganzes Teilgebiet, K… = einzelne Kompetenz):
 ${optionen.map((o) => `${o.code}: ${o.label}`).join('\n')}
@@ -58,43 +58,86 @@ ${SCORE_PROMPT}
 3. zusammenfassung: 2–3 Sätze auf Deutsch
 4. zuordnungen: abgedeckte Kompetenzen (K…); nur wenn ein Material ein Teilgebiet breit abdeckt, stattdessen dessen T…-Code. Leer, wenn nichts passt. Nur zuordnen, was der Text selbst unterrichtet — nicht, was er bloß erwähnt oder verlinkt. Kompetenzen mit Werkzeug-Bezug (z.B. «mittels Programmierung») nur, wenn dieses Werkzeug im Material tatsächlich eingesetzt wird — ein Tutorial zu einer Kreativ-Software ohne Programmieranteil erfüllt keine Programmier-Kompetenz.
 5. tags: passende Tags aus der erlaubten Liste
-6. neueTagVorschlaege: meist leer — nur ausnahmsweise max. 2 neue Tags (kleingeschrieben, generisch wiederverwendbar wie die erlaubten Tags), wenn ein zentraler Aspekt durch kein erlaubtes Tag abbildbar ist. Niemals Themen, die im Lehrplan-Raster oben schon vorkommen (z.B. kryptographie, netzwerke, algorithmen, datenbanken — dafür sind die Zuordnungen da). Tags beschreiben Form, Werkzeug oder Zugang, nicht das Thema. Keine Synonyme.
+6. neueTagVorschlaege: meist leer — nur ausnahmsweise max. 2 neue Tags (kleingeschrieben, generisch wiederverwendbar wie die erlaubten Tags), wenn ein zentraler Aspekt durch kein erlaubtes Tag abbildbar ist. Niemals Themen, die im Lehrplan-Raster oben schon vorkommen (z.B. kryptographie, netzwerke, algorithmen, datenbanken — dafür sind die Zuordnungen da). Tags beschreiben Form, Werkzeug oder Zugang, nicht das Thema. Keine Synonyme.`
 
-Material:
-${text.slice(0, 30000)}`
-
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(60000),
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'klassifikation',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              qualityScore: { type: 'integer' },
-              titel: { type: 'string' },
-              zusammenfassung: { type: 'string' },
-              zuordnungen: { type: 'array', items: { type: 'string', enum: optionen.map((o) => o.code) } },
-              tags: { type: 'array', items: { type: 'string', enum: tagNamen } },
-              neueTagVorschlaege: { type: 'array', items: { type: 'string' } },
+  return mitSlot(() => mitRetry(async () => {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(60000),
+      body: JSON.stringify({
+        model: MODEL,
+        // Fester Teil (Raster, Tags, Aufgaben) zuerst und mit Cache-Breakpoint, Material zuletzt:
+        // gleicher Präfix pro Fach-Kontext → Cache-Treffer zu 0.25× Input-Preis
+        messages: [
+          { role: 'system', content: [{ type: 'text', text: anweisung, cache_control: { type: 'ephemeral' } }] },
+          { role: 'user', content: `Material:\n${text.slice(0, 30000)}` },
+        ],
+        usage: { include: true },
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'klassifikation',
+            strict: true,
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                qualityScore: { type: 'integer' },
+                titel: { type: 'string' },
+                zusammenfassung: { type: 'string' },
+                zuordnungen: { type: 'array', items: { type: 'string', enum: optionen.map((o) => o.code) } },
+                tags: { type: 'array', items: { type: 'string', enum: tagNamen } },
+                neueTagVorschlaege: { type: 'array', items: { type: 'string' } },
+              },
+              required: ['qualityScore', 'titel', 'zusammenfassung', 'zuordnungen', 'tags', 'neueTagVorschlaege'],
             },
-            required: ['qualityScore', 'titel', 'zusammenfassung', 'zuordnungen', 'tags', 'neueTagVorschlaege'],
           },
         },
-      },
-    }),
-  })
-  if (!res.ok) throw new Error(`OpenRouter HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  const data = (await res.json()) as { choices: { message: { content: string } }[] }
-  return JSON.parse(data.choices[0].message.content) as Klassifikation
+      }),
+    })
+    if (!res.ok) throw new HttpFehler(res.status, `OpenRouter HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`)
+    const data = (await res.json()) as {
+      choices: { message: { content: string } }[]
+      usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number; prompt_tokens_details?: { cached_tokens?: number } }
+    }
+    const u = data.usage
+    aiVerbrauch.aufrufe++
+    aiVerbrauch.input += u?.prompt_tokens ?? 0
+    aiVerbrauch.gecacht += u?.prompt_tokens_details?.cached_tokens ?? 0
+    aiVerbrauch.output += u?.completion_tokens ?? 0
+    aiVerbrauch.kostenUsd += u?.cost ?? 0
+    return JSON.parse(data.choices[0].message.content) as Klassifikation
+  }))
+}
+
+// Verbrauch über den ganzen Lauf — der Crawler loggt ihn am Ende
+export const aiVerbrauch = { aufrufe: 0, input: 0, gecacht: 0, output: 0, kostenUsd: 0 }
+export const verbrauchText = () =>
+  `AI: ${aiVerbrauch.aufrufe} Aufrufe, ${aiVerbrauch.input} Input-Tokens (davon ${aiVerbrauch.gecacht} aus Cache), ${aiVerbrauch.output} Output-Tokens, ${aiVerbrauch.kostenUsd.toFixed(2)} USD`
+
+// Globale Obergrenze gleichzeitiger AI-Aufrufe (Rate-Limits beim Anbieter), unabhängig davon,
+// wie viele Quellen parallel laufen
+const AI_PARALLEL = Number(process.env.AI_PARALLEL) || 12
+let aktiv = 0
+const warteschlange: (() => void)[] = []
+async function mitSlot<T>(f: () => Promise<T>): Promise<T> {
+  if (aktiv >= AI_PARALLEL) await new Promise<void>((r) => warteschlange.push(r))
+  aktiv++
+  try { return await f() } finally { aktiv--; warteschlange.shift()?.() }
+}
+
+class HttpFehler extends Error { constructor(public status: number, msg: string) { super(msg) } }
+
+// 429/5xx und Netzfehler: bis zu 3 Wiederholungen mit wachsender Pause; 4xx sonst sofort durchreichen
+async function mitRetry<T>(f: () => Promise<T>): Promise<T> {
+  for (let versuch = 0; ; versuch++) {
+    try { return await f() } catch (e) {
+      const status = e instanceof HttpFehler ? e.status : 0
+      if (versuch >= 3 || (status && status !== 429 && status < 500)) throw e
+      await new Promise((r) => setTimeout(r, 2000 * 2 ** versuch))
+    }
+  }
 }
 
 // Ohne OPENROUTER_API_KEY: simple Keyword-Heuristik, damit die Pipeline offline durchläuft.

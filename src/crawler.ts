@@ -4,13 +4,17 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { prisma } from './db.js'
 import { extract, stripTags } from './extract.js'
-import { klassifiziere, ZuordnungsOption } from './ai.js'
+import { klassifiziere, ZuordnungsOption, verbrauchText } from './ai.js'
 import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
 import { syncEduskriptVerzeichnis } from './verzeichnis.js'
 
 const TODES_SCHWELLE = 3
 const PDF_MAX_BYTES = 25 * 1024 * 1024
+// AI-Verarbeitungen gleichzeitig pro Quelle: Fetch der nächsten Seiten läuft weiter, während die AI
+// klassifiziert (global begrenzt durch AI_PARALLEL in ai.ts). Quellen parallel: CRAWL_PARALLEL Hosts.
+const AI_PRO_QUELLE = Number(process.env.AI_PRO_QUELLE) || 4
+const CRAWL_PARALLEL = Number(process.env.CRAWL_PARALLEL) || 6
 const MAX_SEITEN = Number(process.env.MAX_SEITEN) || 200 // Deckel pro Quelle und Nacht — Rest kommt in späteren Läufen; per Env übersteuerbar für manuelle Läufe
 
 const hash = (s: string | Buffer) => crypto.createHash('sha256').update(s).digest('hex')
@@ -306,7 +310,11 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   const gesehen = new Set<string>()
   const anhangCache = new Map<string, string | null>() // Anhang-URL → extrahierter Text (null = unbrauchbar)
   // Deckel zählt AI-Verarbeitungen (Kosten); Besuche sind billig und haben nur ein Sicherheitslimit
-  const verarbeitet = () => stat.neu + stat.aktualisiert + stat.abgelehnt
+  // Laufende AI-Verarbeitungen (Pipeline) und ihre Content-Hashes — für Duplikat-Erkennung,
+  // solange das Schwester-Material noch nicht in der DB steht
+  const laufend = new Set<Promise<void>>()
+  const hashesLaufend = new Set<string>()
+  const verarbeitet = () => stat.neu + stat.aktualisiert + stat.abgelehnt + laufend.size
   // Höflichkeit: kurze Pause zwischen Seiten; bei 429 (Rate-Limit) einmal warten
   // und wiederholen, bei gehäuften 429ern die Quelle für diese Nacht aufgeben.
   const PAUSE_MS = 400
@@ -407,19 +415,25 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
         await prisma.material.update({ where: { id: vorhanden.id }, data: cacheDaten })
         continue
       }
-      const dupe = await prisma.material.findFirst({ where: { quelleId: quelle.id, contentHash: h, url: { not: effektiveUrl } } })
+      const dupe = hashesLaufend.has(h) || await prisma.material.findFirst({ where: { quelleId: quelle.id, contentHash: h, url: { not: effektiveUrl } } })
       if (dupe) {
         if (vorhanden) await prisma.material.delete({ where: { url: effektiveUrl } })
         stat.duplikat++
         continue
       }
-      stat[await verarbeiteMaterial(quelle.id, effektiveUrl, text, h, ctx, force, true, format)]++
-      await prisma.material.updateMany({ where: { url: effektiveUrl }, data: cacheDaten })
+      hashesLaufend.add(h)
+      const job: Promise<void> = verarbeiteMaterial(quelle.id, effektiveUrl, text, h, ctx, force, true, format)
+        .then(async (r) => { stat[r]++; await prisma.material.updateMany({ where: { url: effektiveUrl }, data: cacheDaten }) })
+        .catch((e) => { stat.fehler++; if (stat.fehler <= 5) console.error(`Crawl-Fehler ${effektiveUrl}: ${(e as Error).message}`) })
+        .finally(() => { laufend.delete(job); hashesLaufend.delete(h) })
+      laufend.add(job)
+      if (laufend.size >= AI_PRO_QUELLE) await Promise.race(laufend)
     } catch (e) {
       stat.fehler++
       if (stat.fehler <= 5) console.error(`Crawl-Fehler ${url}: ${(e as Error).message}`)
     }
   }
+  await Promise.all(laufend)
   const gedeckelt = queue.length > 0 || abgebrochen
   const aufraeumen = await raeumeAuf(quelle.id, gesehen, gedeckelt)
   return `${besucht} Seiten${gedeckelt ? ` (${abgebrochen ? 'Rate-Limit-Abbruch' : `gedeckelt, ${maxSeiten}/Nacht`}, ${queue.length} offen)` : ''} via ${sitemap ? 'Sitemap' : 'Link-Spider'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert (davon ${ohneDownload} ohne Download), ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.fehler} Fehler${aufraeumen}`
@@ -952,11 +966,25 @@ export async function crawlAlle(force = false, ab = 0) {
     console.error('Verzeichnis-Sync fehlgeschlagen:', (e as Error).message)
   }
   const quellen = await prisma.quelle.findMany({ where: { todesCounter: { lt: TODES_SCHWELLE }, id: { gte: ab } }, orderBy: { id: 'asc' } })
+  // Quellen desselben Website-Hosts nacheinander (Höflichkeit, z.B. eduskript.org/<site>),
+  // verschiedene Hosts parallel; Git-/Cloud-Quellen sind je eine eigene Gruppe
+  const gruppen = new Map<string, typeof quellen>()
   for (const q of quellen) {
-    const resultat = await crawlQuelle(q.id, force, true)
-    console.log(`${q.url} → ${resultat}`)
+    const key = q.typ === 'WEBSITE' ? new URL(q.url).hostname : `${q.typ}:${q.id}`
+    gruppen.set(key, [...(gruppen.get(key) ?? []), q])
   }
+  const offen = [...gruppen.values()]
+  const worker = async () => {
+    for (let g = offen.shift(); g; g = offen.shift()) {
+      for (const q of g) {
+        const resultat = await crawlQuelle(q.id, force, true)
+        console.log(`${q.url} → ${resultat}`)
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: CRAWL_PARALLEL }, worker))
   await flushTagVorschlaege()
+  console.log(verbrauchText())
 }
 
 if (process.argv[1]?.endsWith('crawler.ts') || process.argv[1]?.endsWith('crawler.js')) {
@@ -964,7 +992,7 @@ if (process.argv[1]?.endsWith('crawler.ts') || process.argv[1]?.endsWith('crawle
   const einzeln = Number(process.argv.find((a) => a.startsWith('--quelle='))?.slice(9) ?? 0)
   const force = process.argv.includes('--force')
   const lauf = einzeln
-    ? crawlQuelle(einzeln, force, false, Infinity).then((r) => console.log(r)).then(() => flushTagVorschlaege())
+    ? crawlQuelle(einzeln, force, false, Infinity).then((r) => console.log(r)).then(() => flushTagVorschlaege()).then(() => console.log(verbrauchText()))
     : crawlAlle(force, ab)
   lauf.then(() => prisma.$disconnect())
 }
