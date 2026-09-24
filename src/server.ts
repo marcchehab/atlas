@@ -8,7 +8,8 @@ import * as auth from './auth.js'
 import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
 import { SCORE_PROMPT, SCORE_BAENDER } from './ai.js'
-import { layout, esc, kürze, sidebar, materialKarte, voteButtons, loginSeite, filterLeiste, tagVorschlagChip, quellenKey, MaterialKarte, TagVorschlag, FilterChip, BASE_URL, tgPfad, koPfad, grossErst } from './views.js'
+import { NIVEAU_PROMPT, NIVEAU_BAENDER, niveauBandName, fachAnker, mdZuHtml } from './niveau.js'
+import { layout, esc, kürze, sidebar, materialKarte, rangGruppe, loginSeite, filterLeiste, tagVorschlagChip, quellenKey, MaterialKarte, TagVorschlag, FilterChip, BASE_URL, tgPfad, koPfad, grossErst } from './views.js'
 
 const app = express()
 const SECRET = process.env.SESSION_SECRET ?? 'dev'
@@ -111,9 +112,11 @@ async function ladeMaterialKarten(where: object, userId: number | null, diszipli
       disziplinCode,
       score: m.upvotes.reduce((s, u) => s + u.wert, 0),
       meinVote: m.upvotes.find((u) => u.userId === userId)?.wert ?? 0,
-      aiScore: m.qualityScore ?? 0,
+      didaktikScore: m.qualityScore ?? 0,
+      niveau: m.niveau,
+      niveauBand: m.niveau != null ? niveauBandName(m.niveau) : null,
     }))
-    // Ranking: Community-Votes zuerst, AI-Score nur als Initial-Ranking dahinter
+    // Ranking: Community-Votes zuerst, Didaktik-Score nur als Initial-Ranking dahinter
     .sort((a, b) => sortScore(b) - sortScore(a) || b.id - a.id)
 }
 
@@ -123,12 +126,15 @@ interface ListenFilter {
   quellen: string[]
   tags: string[]
   format: string[]
+  niveau: string[] // Bandnamen des Niveau-Scores
   q: string // Volltextsuche innerhalb der Liste (FTS5)
+  sort: string // '' = Didaktik-Score (+ Stimmen) | niveau-auf | niveau-ab
 }
+type ChipKategorie = 'quellen' | 'tags' | 'format' | 'niveau'
 
 function leseFilter(req: express.Request): ListenFilter {
   const arr = (v: unknown) => (Array.isArray(v) ? v.map(String) : v != null ? [String(v)] : [])
-  return { quellen: arr(req.query.quelle), tags: arr(req.query.tag), format: arr(req.query.fmt), q: String(req.query.q ?? '').trim() }
+  return { quellen: arr(req.query.quelle), tags: arr(req.query.tag), format: arr(req.query.fmt), niveau: arr(req.query.niv), q: String(req.query.q ?? '').trim(), sort: String(req.query.sort ?? '') }
 }
 
 // FTS5-Anfrage: Wörter gequotet (keine FTS-Syntax-Injektion), ab 3 Zeichen als Präfix —
@@ -151,8 +157,20 @@ async function ftsIds(q: string): Promise<Set<number>> {
   return new Set(rows.map((r) => Number(r.id)))
 }
 
-// Ranking: AI-Band (0–100) plus 5 Punkte pro Netto-Stimme; bei Gleichstand das Neuere zuerst
-const sortScore = (m: { score: number; aiScore: number }) => m.aiScore + 5 * m.score
+// Ranking: Didaktik-Score = KI-Bewertung (0–100) plus 5 Punkte pro Netto-Stimme; bei Gleichstand das Neuere zuerst
+const sortScore = (m: { score: number; didaktikScore: number }) => m.didaktikScore + 5 * m.score
+
+// Wählbare Sortierung: Niveau auf-/absteigend (Unbewertete ans Ende), innerhalb gleichen Niveaus
+// nach Didaktik-Score + Stimmen
+function vergleiche(sort: string) {
+  const empf = (a: LeichtesMaterial, b: LeichtesMaterial) => sortScore(b) - sortScore(a) || b.id - a.id
+  if (sort === 'niveau-auf' || sort === 'niveau-ab') {
+    const r = sort === 'niveau-auf' ? 1 : -1
+    return (a: LeichtesMaterial, b: LeichtesMaterial) =>
+      (a.niveau == null ? 1 : 0) - (b.niveau == null ? 1 : 0) || r * ((a.niveau ?? 0) - (b.niveau ?? 0)) || empf(a, b)
+  }
+  return empf
+}
 
 interface LeichtesMaterial {
   id: number
@@ -160,7 +178,8 @@ interface LeichtesMaterial {
   tags: string[]
   format: string
   score: number
-  aiScore: number
+  didaktikScore: number
+  niveau: number | null
 }
 
 // Schlanke Liste aller sichtbaren Materialien eines Kontexts — Grundlage für Chip-Zahlen,
@@ -174,6 +193,7 @@ async function ladeLeicht(where: object): Promise<LeichtesMaterial[]> {
       url: true,
       format: true,
       qualityScore: true,
+      niveau: true,
       tags: { select: { tag: { select: { name: true } } } },
       upvotes: { select: { wert: true } },
     },
@@ -184,23 +204,25 @@ async function ladeLeicht(where: object): Promise<LeichtesMaterial[]> {
     tags: m.tags.map((t) => t.tag.name),
     format: m.format ?? '',
     score: m.upvotes.reduce((s, u) => s + u.wert, 0),
-    aiScore: m.qualityScore ?? 0,
+    didaktikScore: m.qualityScore ?? 0,
+    niveau: m.niveau,
   }))
 }
 
 // Passt m zu den Filtern? `ausser` blendet eine Kategorie aus — für die Chip-Zahlen
 // (Zahl eines Chips = Treffer unter den Filtern der jeweils anderen Kategorien).
-function passtAusser(m: LeichtesMaterial, f: ListenFilter, ausser: keyof ListenFilter | null): boolean {
+function passtAusser(m: LeichtesMaterial, f: ListenFilter, ausser: ChipKategorie | null): boolean {
   return (
     (ausser === 'quellen' || !f.quellen.length || f.quellen.includes(m.quelle)) &&
     (ausser === 'tags' || !f.tags.length || m.tags.some((x) => f.tags.includes(x))) &&
-    (ausser === 'format' || !f.format.length || f.format.includes(m.format))
+    (ausser === 'format' || !f.format.length || f.format.includes(m.format)) &&
+    (ausser === 'niveau' || !f.niveau.length || (m.niveau != null && f.niveau.includes(niveauBandName(m.niveau))))
   )
 }
 
 // Chip-Listen sind global (alle Quellen/Tags/Formate wie bisher); die Zahlen zählen
 // den aktuellen Kontext (`leicht`) unter dem Filterstand `f`.
-async function filterDaten(userId: number | null, leicht: LeichtesMaterial[], f: ListenFilter): Promise<[FilterChip[], FilterChip[], FilterChip[], TagVorschlag[]]> {
+async function filterDaten(userId: number | null, leicht: LeichtesMaterial[], f: ListenFilter): Promise<[FilterChip[], FilterChip[], FilterChip[], TagVorschlag[], FilterChip[]]> {
   // Nur Quellen mit sichtbaren Materialien — leere/tote gehören nicht in die Filterleiste
   const quellen = await prisma.quelle.findMany({
     where: { todesCounter: { lt: 3 }, materialien: { some: { qualityScore: { gte: 20 }, versteckt: false, fehlCounter: { lt: 3 } } } },
@@ -213,7 +235,7 @@ async function filterDaten(userId: number | null, leicht: LeichtesMaterial[], f:
     orderBy: [{ name: 'asc' }],
     include: { votes: true },
   })
-  const chip = (kat: keyof ListenFilter, wert: string, hat: (m: LeichtesMaterial) => boolean): FilterChip => ({
+  const chip = (kat: ChipKategorie, wert: string, hat: (m: LeichtesMaterial) => boolean): FilterChip => ({
     wert,
     aktiv: f[kat].includes(wert),
     anzahl: leicht.filter((m) => hat(m) && passtAusser(m, f, kat)).length,
@@ -229,6 +251,11 @@ async function filterDaten(userId: number | null, leicht: LeichtesMaterial[], f:
       .map((v) => ({ id: v.id, name: v.name, votes: v.votes.length, meinVote: userId != null && v.votes.some((x) => x.userId === userId) }))
       .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name))
       .slice(0, 5), // mehr Vorschläge überfordern die Leiste — Rest wartet im Admin
+    // Niveau: immer alle fünf Bänder in fester Reihenfolge, auch leere
+    NIVEAU_BAENDER.map(([von, name], i) => ({
+      ...chip('niveau', name, (m) => m.niveau != null && niveauBandName(m.niveau) === name),
+      label: `${von}–${(NIVEAU_BAENDER[i + 1]?.[0] ?? 101) - 1} ${name}`,
+    })),
   ]
 }
 
@@ -245,7 +272,7 @@ async function listeFragment(where: object, basisUrl: string, req: express.Reque
   }
   const gefiltert = leicht
     .filter((m) => passtAusser(m, f, null))
-    .sort((a, b) => sortScore(b) - sortScore(a) || b.id - a.id)
+    .sort(vergleiche(f.sort))
   const slice = gefiltert.slice(offset, offset + SEITE)
   const karten = await ladeMaterialKarten({ id: { in: slice.map((s) => s.id) } }, user?.id ?? null, disziplinCode)
   const nachId = new Map(karten.map((k) => [k.id, k]))
@@ -260,12 +287,15 @@ async function listeFragment(where: object, basisUrl: string, req: express.Reque
     f.quellen.forEach((v) => qs.append('quelle', v))
     f.tags.forEach((v) => qs.append('tag', v))
     f.format.forEach((v) => qs.append('fmt', v))
+    f.niveau.forEach((v) => qs.append('niv', v))
     if (f.q) qs.set('q', f.q)
+    if (f.sort) qs.set('sort', f.sort)
     qs.set('offset', String(offset + SEITE))
     sentinel = `<div class="sentinel" hx-get="${esc(basisUrl + (basisUrl.includes('?') ? '&' : '?') + qs.toString())}" hx-trigger="revealed" hx-swap="outerHTML"></div>`
   }
   if (offset > 0) return kartenHtml + sentinel
-  const leiste = filterLeiste(...(await filterDaten(user?.id ?? null, leicht, f)), !!user)
+  const [quellen, tags, formate, vorschlaege, niveau] = await filterDaten(user?.id ?? null, leicht, f)
+  const leiste = filterLeiste(quellen, tags, formate, vorschlaege, !!user, niveau, f.sort)
   const inhalt = gefiltert.length
     ? kartenHtml
     : leicht.length
@@ -301,7 +331,7 @@ app.get('/', async (req, res) => {
   ])
   const body = `<h1>Unterrichtsmaterial für Schweizer Gymnasien</h1>
 <p>Atlas sammelt frei zugängliches Unterrichtsmaterial von Lehrpersonen für Maturitätsschulen und ordnet es den Lernzielen des <a href="https://edudoc.ch/record/232281/files/Rahmenlehrplan-maturitatsschulen.pdf" rel="noopener">Rahmenlehrplans Maturitätsschulen (EDK 2024)</a> zu — mit Kurzzusammenfassung, Link zur Originalquelle und Bewertungen aus der Community.</p>
-<p>Atlas ist im Aufbau: Als Pilot deckt es die Grundlagenfächer Informatik, Physik und Mathematik ab — weitere Fächer folgen.</p>
+<p>Atlas ist im Aufbau: Als Pilot deckt es die Grundlagenfächer Informatik, Physik, Mathematik und Chemie ab — weitere Fächer folgen.</p>
 <p class="meta">${materialien} Materialien aus ${quellen} Quellen · kostenlos und ohne Registrierung durchsuchbar</p>
 <form class="suche" action="/suche"><input type="search" name="q" placeholder="Volltextsuche, z.B. binärsystem arbeitsblatt"><button>Suchen</button></form>
 <h2>Disziplinen und Fächer</h2>
@@ -353,7 +383,7 @@ app.get('/sitemap.xml', async (_req, res) => {
   const disziplinen = await prisma.disziplin.findMany({
     include: { faecher: { include: { lerngebiete: { include: { teilgebiete: { include: { kompetenzen: true } } } } } } },
   })
-  const pfade = ['/', '/quellen', '/sortierung']
+  const pfade = ['/', '/quellen', '/sortierung', '/niveau']
   for (const f of disziplinen) {
     for (const fach of f.faecher) {
       pfade.push(`/fach/${fach.code}`)
@@ -792,18 +822,69 @@ app.get('/sortierung', async (req, res) => {
   const user = await aktuellerUser(req)
   const side = await baueSidebar(await aktivesFach(req), undefined, user)
   const body = `<h1>Wie wird sortiert?</h1>
-<p>Jedes Material bekommt beim Erfassen von der AI einen <strong>AI-Score</strong> von 0 bis 100. Angemeldete Lehrpersonen stimmen ab, jede Netto-Stimme zählt 5 Punkte.
-Sortiert wird nach <strong>AI-Score + 5 × Netto-Stimmen</strong>. Materialien unter 20 werden nicht aufgenommen.</p>
+<p>Jedes Material bekommt beim Erfassen von einer KI eine <strong>KI-Bewertung</strong> von 0 bis 100: Wie gut taugt es didaktisch fürs Gymnasium? Angemeldete Lehrpersonen stimmen ab, jede Netto-Stimme zählt 5 Punkte.
+Zusammen ergibt das den <strong>Didaktik-Score = KI-Bewertung + 5 × Netto-Stimmen</strong>, nach dem sortiert wird. Materialien mit einer KI-Bewertung unter 20 werden nicht aufgenommen.</p>
 <h2>Die fünf Bänder</h2>
 <table>
-<tr><th>AI-Score</th><th>Band</th><th></th></tr>
+<tr><th>KI-Bewertung</th><th>Band</th><th></th></tr>
 ${SCORE_BAENDER.map(([von, name, kurz], i) => `<tr><td>${von}–${(SCORE_BAENDER[i + 1]?.[0] ?? 101) - 1}</td><td>${esc(name)}</td><td class="meta">${esc(kurz)}</td></tr>`).join('\n')}
 </table>
 <h2>Der Prompt</h2>
-<p class="meta">Wörtlich der Teil des Klassifikations-Prompts, der den AI-Score bestimmt — direkt aus dem Quelltext, damit diese Seite nie veraltet.</p>
+<p class="meta">Wörtlich der Teil des Klassifikations-Prompts, der die KI-Bewertung bestimmt — direkt aus dem Quelltext, damit diese Seite nie veraltet.</p>
 <pre style="white-space:pre-wrap;font-size:.8rem;background:var(--card);border:1px solid var(--rand);border-radius:10px;padding:.9rem 1.1rem">${esc(SCORE_PROMPT)}</pre>
-<p class="meta">Modell: Gemini Flash Lite. Der ganze Code ist offen: <a href="https://github.com/marcchehab/atlas" rel="noopener">github.com/marcchehab/atlas</a>.</p>`
-  res.send(layout('Wie wird sortiert?', side, body, user, { pfad: '/sortierung', beschreibung: 'So sortiert Atlas Unterrichtsmaterial: AI-Score in fünf Bändern plus Stimmen der Community — mit dem vollständigen Bewertungs-Prompt.' }))
+<p class="meta">Modell: Gemini Flash Lite. Der ganze Code ist offen: <a href="https://github.com/marcchehab/atlas" rel="noopener">github.com/marcchehab/atlas</a>.</p>
+<p>Getrennt davon gibt es den <a href="/niveau">Niveau-Score</a>: Für welche Stufe ist ein Material fachlich gemacht?</p>`
+  res.send(layout('Wie wird sortiert?', side, body, user, { pfad: '/sortierung', beschreibung: 'So sortiert Atlas Unterrichtsmaterial: Didaktik-Score in fünf Bändern plus Stimmen der Community — mit dem vollständigen Bewertungs-Prompt.' }))
+})
+
+// Transparenz: Niveau-Skala, Methodik der Fach-Anker, Anker und Belege pro Disziplin
+app.get('/niveau', async (req, res) => {
+  const user = await aktuellerUser(req)
+  const side = await baueSidebar(await aktivesFach(req), undefined, user)
+  const disziplinen = await prisma.disziplin.findMany({ orderBy: { name: 'asc' } })
+  const pre = 'style="white-space:pre-wrap;font-size:.8rem;background:var(--card);border:1px solid var(--rand);border-radius:10px;padding:.9rem 1.1rem"'
+  const faecher = disziplinen.map((d) => {
+    const a = fachAnker(d.code)
+    if (!a) return `<h3>${esc(d.name)}</h3><p class="meta">Noch keine Fach-Anker. Bewertet wird nur mit der allgemeinen Skala.</p>`
+    return `<h3 id="${esc(d.code)}">${esc(d.name)}</h3>
+<pre ${pre}>${esc(a.anker)}</pre>
+${a.abschnitte.map((t) => `<details><summary>${esc(t.titel)}</summary>\n${mdZuHtml(t.markdown)}\n</details>`).join('\n')}`
+  }).join('\n')
+  const body = `<h1>Wie wird der Niveau-Score bestimmt?</h1>
+<p>Neben dem <a href="/sortierung">Didaktik-Score</a>, der die didaktische Qualität bewertet, bekommt jedes Material einen <strong>Niveau-Score</strong> von 1 bis 100.
+Er beantwortet eine andere Frage: <em>Für welche Bildungsstufe ist der Inhalt fachlich gemacht?</em> Das ist kein Qualitätsurteil, sondern eine Frage der Passung.
+Ein gutes Einstiegsmaterial ist so wertvoll wie eine anspruchsvolle Vertiefung. Über den Niveau-Score findet man gezielt das eine oder das andere.</p>
+<p class="meta">Der Niveau-Score ist in Vorbereitung. Diese Seite dokumentiert seine Grundlage.</p>
+<h2>Die fünf Bänder</h2>
+<p>Die Skala ist an der Bildungsstufe verankert, nicht an einem Fach. Darum bedeutet 41–60 in jedem Fach dasselbe: passt für eine Gymnasialklasse im Grundlagenfach.</p>
+<table>
+<tr><th>Niveau-Score</th><th>Band</th><th></th></tr>
+${NIVEAU_BAENDER.map(([von, name, kurz], i) => `<tr><td>${von}–${(NIVEAU_BAENDER[i + 1]?.[0] ?? 101) - 1}</td><td>${esc(name)}</td><td class="meta">${esc(kurz)}</td></tr>`).join('\n')}
+</table>
+<p>Bewertet wird nach vier Kriterien, die für jedes Fach gelten: vorausgesetztes Vorwissen, Abstraktion und Formalisierung, Tiefe (Phänomen → Modell → Herleitung) und Anforderung der Aufgaben (Reproduktion, Anwendung, Transfer/Begründung/Beweis).
+Massgebend ist, was ein Material verlangt, nicht sein Thema: Trigonometrie kann auf 30 oder auf 70 liegen.</p>
+<h2>Methodik: Fach-Anker aus Belegen</h2>
+<p>Eine allgemeine Skala allein ist zu ungenau. Pro Fach gibt es deshalb <strong>Fach-Anker</strong>: 10–15 Zeilen mit Beispielen, was in jedem Band typischerweise verlangt wird.
+Die Anker sind nicht von Hand geschrieben, sondern aus <strong>öffentlichen Belegen hergeleitet, deren Stufe bekannt ist</strong>:</p>
+<ul>
+<li><strong>Sek I:</strong> Lehrplan 21, Aufnahmeprüfungen ans Gymnasium, Sek-I-Lehrmittel, Informatik-Biber nach Altersstufen</li>
+<li><strong>Gymnasium:</strong> schriftliche Maturprüfungen, Rahmenlehrplan 2024, Prüfungen und Lernziele von Gymnasiallehrpersonen</li>
+<li><strong>Vertieft:</strong> Maturprüfungen in Schwerpunkt- und Ergänzungsfächern, erste Runden der Wissenschafts-Olympiaden</li>
+<li><strong>Hochschule:</strong> Olympiade-Finalrunden, Übungen und Prüfungen aus dem ersten Studienjahr (ETH, EPFL)</li>
+</ul>
+<p>Wo es keine Maturprüfung gibt (z.B. Grundlagenfach Informatik), zeigt das, was Gymnasien tatsächlich unterrichten, wo der Kern liegt.
+Alle Belege sind unten verlinkt, samt den Lücken und Unsicherheiten pro Fach.</p>
+<h2>Mit KI hergeleitet</h2>
+<p>Skala, Kriterien und Vorgehen sind von Menschen festgelegt. <strong>Die Belege gesucht, gelesen und daraus die Fach-Anker formuliert hat eine KI</strong> (Claude von Anthropic, September 2026). Jeder Link wurde dabei abgerufen und auf seinen Inhalt geprüft.
+Bewertet werden die Materialien später ebenfalls von einer KI (Gemini Flash Lite), mit dem Prompt unten und den Anker-Zeilen des jeweiligen Fachs.
+KI kann sich irren, einzelne Einstufungen können daneben liegen. Die Anker sind eine Orientierung, kein Messinstrument.
+Hinweise auf Fehler oder bessere Belege sind willkommen, z.B. als Issue auf <a href="https://github.com/marcchehab/atlas" rel="noopener">GitHub</a>.</p>
+<h2>Der Prompt</h2>
+<pre ${pre}>${esc(NIVEAU_PROMPT)}</pre>
+<h2>Fach-Anker</h2>
+<p class="meta">Diese Zeilen kommen zusätzlich in den Prompt, wenn ein Material des Fachs bewertet wird. Unter jedem Fach: Belege, Kalibrierfälle, Methodik und Unsicherheiten.</p>
+${faecher}`
+  res.send(layout('Wie wird der Niveau-Score bestimmt?', side, body, user, { pfad: '/niveau', beschreibung: 'So bestimmt Atlas den Niveau-Score von Unterrichtsmaterial: fachneutrale Skala, mit KI aus Maturprüfungen, Olympiaden und Lehrplänen hergeleitete Fach-Anker, alle Belege verlinkt.' }))
 })
 
 // Vote (HTMX): gleicher Pfeil nochmal = zurückziehen, anderer Pfeil = wechseln
@@ -823,7 +904,8 @@ app.post('/vote/:id/:richtung', async (req, res) => {
     meinVote = wert
   }
   const agg = await prisma.upvote.aggregate({ where: { materialId }, _sum: { wert: true } })
-  res.send(voteButtons({ id: materialId, score: agg._sum.wert ?? 0, meinVote }, true))
+  const mat = await prisma.material.findUnique({ where: { id: materialId }, select: { qualityScore: true } })
+  res.send(rangGruppe({ id: materialId, score: agg._sum.wert ?? 0, meinVote, didaktikScore: mat?.qualityScore ?? 0 }, true))
 })
 
 // Quelle löschen: Admins jede, Melder:innen ihre eigenen.

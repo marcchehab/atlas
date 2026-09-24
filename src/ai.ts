@@ -15,7 +15,7 @@ export interface ZuordnungsOption {
 
 const MODEL = process.env.AI_MODEL ?? 'google/gemini-3.5-flash-lite'
 
-// Bewertungskriterien fürs AI-Band — Teil des Prompts und wörtlich auf /sortierung veröffentlicht
+// Bewertungskriterien für den Didaktik-Score — Teil des Prompts und wörtlich auf /sortierung veröffentlicht
 export const SCORE_PROMPT = `1. qualityScore 0–100: Taugt das als Unterrichtsmaterial fürs Gymnasium, und wie gut?
    Gutes Material erklärt zuerst anschaulich und intuitiv, dann erst formal, zeigt gute Beispiele und lässt die Schüler:innen mit Aufgaben und Lösungen selbst arbeiten. Und es begeistert: spielerisch, überraschend, lustig, mit echtem Bezug zur Welt der Schüler:innen. Gute Übungen sind wertvoll, werte Übungsblätter nicht ab. Entscheidend ist, ob die Aufgaben interessant und spannend sind oder Routine.
    Auch ein gutes Werkzeug kann sehr gut bewertet werden: interaktive Simulatoren, Rechner, Editoren oder Spiele, mit denen Schüler:innen etwas ausprobieren und verstehen (z.B. ein Little-Man-Computer-Simulator), gehören in die oberen Bänder, auch wenn sie wenig erklärenden Text enthalten. Erkenne Werkzeuge auch an Bedienelementen und Beschreibungen, nicht nur an Erklärtext.

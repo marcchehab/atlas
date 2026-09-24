@@ -113,6 +113,9 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
     fltr('quellen').forEach((v) => p.append('quelle', v))
     fltr('tags').forEach((v) => p.append('tag', v))
     fltr('format').forEach((v) => p.append('fmt', v))
+    fltr('niveau').forEach((v) => p.append('niv', v))
+    const so = localStorage.getItem('f-sort')
+    if (so) p.set('sort', so)
     const s = document.getElementById('suchfeld')
     if (s && s.value.trim()) p.set('q', s.value.trim())
     return p.toString()
@@ -130,8 +133,10 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
     history.replaceState(null, '', location.pathname + (q ? '?' + q : ''))
     htmx.ajax('GET', el.dataset.liste + (q ? (el.dataset.liste.includes('?') ? '&' : '?') + q : ''), { target: '#materialliste', swap: 'innerHTML' })
   }
+  function sortWaehlen(v) { localStorage.setItem('f-sort', v); ladeListe() }
   function filterReset() {
-    for (const k of ['quellen', 'tags', 'format']) localStorage.setItem('f-' + k, '[]')
+    for (const k of ['quellen', 'tags', 'format', 'niveau']) localStorage.setItem('f-' + k, '[]')
+    localStorage.setItem('f-sort', '')
     const s = document.getElementById('suchfeld')
     if (s) s.value = ''
     ladeListe()
@@ -144,15 +149,18 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
     const fachSel = document.querySelector('aside select')
     if (fachSel && localStorage.getItem('f-fach') !== fachSel.value) {
       localStorage.setItem('f-fach', fachSel.value)
-      for (const k of ['quellen', 'tags', 'format']) localStorage.setItem('f-' + k, '[]')
+      for (const k of ['quellen', 'tags', 'format', 'niveau']) localStorage.setItem('f-' + k, '[]')
+      localStorage.setItem('f-sort', '')
       const s = document.getElementById('suchfeld')
       if (s) s.value = ''
     }
     const p = new URLSearchParams(location.search)
-    if (p.has('quelle') || p.has('tag') || p.has('fmt')) { // explizite Filter-URL gewinnt → localStorage nachziehen
+    if (p.has('quelle') || p.has('tag') || p.has('fmt') || p.has('niv') || p.has('sort')) { // explizite Filter-URL gewinnt → localStorage nachziehen
       localStorage.setItem('f-quellen', JSON.stringify(p.getAll('quelle')))
       localStorage.setItem('f-tags', JSON.stringify(p.getAll('tag')))
       localStorage.setItem('f-format', JSON.stringify(p.getAll('fmt')))
+      localStorage.setItem('f-niveau', JSON.stringify(p.getAll('niv')))
+      localStorage.setItem('f-sort', p.get('sort') ?? '')
     } else if (filterQuery()) {
       ladeListe() // gespeicherte Filter der letzten Seite anwenden
     }
@@ -178,8 +186,8 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
   }
 </script>
 <style>
-  :root { --primary: hsl(221.2 83.2% 53.3%); --bg: #f5f5f5; --card: #fff; --fg: #262626; --rand: #e4e4e4; --meta: #737373; --chip: #eef3fa; --chip-ziel: #f3eefa; --hinweis-bg: #fff8e1; --hinweis-rand: #e6d9a0; }
-  [data-theme="dark"] { --primary: hsl(217.2 91.2% 59.8%); --bg: #0d0d0d; --card: #1a1a1a; --fg: #e5e5e5; --rand: #2e2e2e; --meta: #9ca3af; --chip: #1c2740; --chip-ziel: #29203f; --hinweis-bg: #2b2413; --hinweis-rand: #5c4d1e; }
+  :root { --primary: hsl(221.2 83.2% 53.3%); --bg: #f5f5f5; --card: #fff; --fg: #262626; --rand: #e4e4e4; --meta: #737373; --chip: #eef3fa; --chip-ziel: #f3eefa; --hinweis-bg: #fff8e1; --hinweis-rand: #e6d9a0; --didaktik: hsl(160 75% 30%); --niveau: hsl(28 85% 42%); }
+  [data-theme="dark"] { --primary: hsl(217.2 91.2% 59.8%); --bg: #0d0d0d; --card: #1a1a1a; --fg: #e5e5e5; --rand: #2e2e2e; --meta: #9ca3af; --chip: #1c2740; --chip-ziel: #29203f; --hinweis-bg: #2b2413; --hinweis-rand: #5c4d1e; --didaktik: hsl(158 60% 50%); --niveau: hsl(32 90% 60%); }
   * { box-sizing: border-box; }
   body { font-family: Inter, system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--fg); line-height: 1.5; }
   h1, h2, h3 { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; letter-spacing: .01em; }
@@ -236,10 +244,19 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
   .freset:hover { opacity: 1; }
   .fkat .punkt { display: none; width: 7px; height: 7px; border-radius: 50%; background: var(--primary); }
   .fkat.mit-punkt .punkt { display: inline-block; }
+  .sortwahl { cursor: default; }
+  .sortwahl select { font: inherit; font-size: .8rem; color: var(--fg); background: var(--card); border: 1px solid var(--rand); border-radius: 6px; padding: .1rem .3rem; }
+  .nivpresets { display: flex; gap: .4rem; align-items: center; margin-left: .6rem; }
   .fchips { display: none; align-items: center; gap: .4rem; flex-wrap: wrap; }
   .qchip { border: 1px solid var(--rand); background: var(--card); color: var(--fg); border-radius: 999px; padding: .1rem .7rem; font-size: .78rem; cursor: pointer; }
   .qchip:hover { background: var(--bg); }
   .qchip.aktiv { background: var(--primary); color: #fff; border-color: var(--primary); }
+  /* Farbton pro Score-Gruppe: Didaktik grün, Niveau orange (Badges, Niveau-Filter, Sortierung) */
+  .fchips[data-k="niveau"] .qchip.aktiv { background: var(--niveau); border-color: var(--niveau); }
+  .fkat[data-k="niveau"] .punkt { background: var(--niveau); }
+  .sortwahl select.g-didaktik { color: var(--didaktik); border-color: var(--didaktik); }
+  .sortwahl select.g-niveau { color: var(--niveau); border-color: var(--niveau); }
+  .sortwahl option { color: var(--didaktik); } .sortwahl option[value^="niveau"] { color: var(--niveau); }
   .qchip.vorschlag { border-style: dashed; color: var(--meta); text-decoration: none; }
   .qchip.vorschlag.aktiv { background: var(--primary); color: #fff; border-color: var(--primary); border-style: solid; }
   .karte .quelle-link { color: var(--meta); } .karte .quelle-link:hover { color: var(--fg); text-decoration: none; }
@@ -266,16 +283,33 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
   .tag { display: inline-block; background: var(--chip); border-radius: 999px; padding: .05rem .6rem; font-size: .78rem; margin-right: .3rem; color: var(--primary); }
   .tag.ziel { background: var(--chip-ziel); }
   .tag.format { background: transparent; border: 1px solid var(--rand); color: var(--meta); }
-  .aiscore { display: flex; flex-direction: column; align-items: center; color: var(--meta); text-decoration: none; min-width: 3.2rem; padding-top: .15rem; }
-  .aiscore .zahl { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 1.25rem; line-height: 1; }
-  .aiscore .label { font-size: .6rem; letter-spacing: .04em; text-transform: uppercase; }
-  .aiscore:hover { color: var(--fg); text-decoration: none; }
+  .didaktikscore { display: flex; flex-direction: column; align-items: center; color: var(--meta); text-decoration: none; min-width: 3.2rem; padding-top: .15rem; }
+  .didaktikscore .zahl { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 1.25rem; line-height: 1; }
+  .didaktikscore .zahl { color: var(--didaktik); }
+  .niveauscore .zahl { color: var(--niveau); }
+  .scores { display: flex; gap: .5rem; align-items: stretch; }  /* Niveau-Box so hoch wie die Didaktik-Box */
+  .niveauscore { display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-width: 0; border: 1px solid color-mix(in oklab, var(--niveau) 35%, transparent); background: color-mix(in oklab, var(--niveau) 6%, transparent); border-radius: 10px; padding: .35rem .6rem .3rem; }  /* analog zur Didaktik-Box: Zahl + «KI», Label unten */
+  .niveauscore .oben { display: flex; flex-direction: column; align-items: center; }
+  .niveauscore .oben .zahl { margin-top: .12rem; } .niveauscore .oben .klein { margin-top: .24rem; }  /* gleiche Linien wie das Grid der Didaktik-Box */
+  .niveauscore .klein { font-size: .55rem; letter-spacing: .04em; text-transform: uppercase; color: var(--meta); line-height: 1.2; }
+  .niveauscore .nlabel { font-size: .6rem; letter-spacing: .04em; text-transform: uppercase; color: var(--niveau); white-space: nowrap; }
+  .didaktikscore .label { font-size: .6rem; letter-spacing: .04em; text-transform: uppercase; max-width: 3.6rem; text-align: center; line-height: 1.2; }
+  .didaktikscore:hover { color: var(--fg); text-decoration: none; }
   .sortinfo { margin-left: auto; text-decoration: none; }
-  .voten { display: flex; flex-direction: column; align-items: center; gap: .1rem; }
-  .voten .pfeil { border: 1px solid var(--rand); border-radius: 8px; background: var(--card); color: var(--fg); cursor: pointer; padding: .1rem .55rem; font-size: .85rem; line-height: 1.3; font-family: inherit; }
-  .voten .pfeil:hover { background: var(--bg); text-decoration: none; }
-  .voten .pfeil.aktiv { background: var(--primary); color: #fff; border-color: var(--primary); }
-  .voten .score { font-weight: 600; font-size: .95rem; }
+  .pfeile { display: flex; flex-direction: column; gap: .15rem; grid-row: span 2; }
+  .pfeil { border: 1px solid var(--rand); border-radius: 6px; background: var(--card); color: var(--didaktik); cursor: pointer; padding: .05rem .4rem; font-size: .65rem; line-height: 1.4; font-family: inherit; }
+  .pfeil:hover { background: var(--bg); text-decoration: none; }
+  .pfeil.aktiv { background: var(--didaktik); color: #fff; border-color: var(--didaktik); }
+  .rang { display: flex; flex-direction: column; align-items: center; gap: .55rem; border: 1px solid color-mix(in oklab, var(--didaktik) 35%, transparent); background: color-mix(in oklab, var(--didaktik) 6%, transparent); border-radius: 10px; padding: .35rem .5rem .3rem; }
+  /* Zeile 1: Zahlen und Operator auf einer Linie, Zeile 2: KI/Humans darunter; Pfeile über beide Zeilen */
+  .rang-grid { display: grid; grid-template-areas: "ki plus faktor st pf" "kil . stl stl pf"; column-gap: .15rem; align-items: center; justify-items: center; }
+  .rang-grid > .zahl:first-child { grid-area: ki; } .rang-grid > .plus { grid-area: plus; margin: 0 .35rem; } .rang-grid > .faktor { grid-area: faktor; }
+  .rang-grid > .stimmen { grid-area: st; } .rang-grid > .pfeile { grid-area: pf; margin-left: .25rem; } .rang-grid > .ki { grid-area: kil; } .rang-grid > .humans { grid-area: stl; }
+  .rang .zahl { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 1.25rem; line-height: 1; color: var(--didaktik); text-decoration: none; }
+  .rang .klein { font-size: .55rem; letter-spacing: .04em; text-transform: uppercase; color: var(--meta); line-height: 1.2; }
+  .rang .op { color: var(--meta); font-size: .8rem; white-space: nowrap; }
+  .rang .label { font-size: .6rem; letter-spacing: .04em; text-transform: uppercase; color: var(--didaktik); text-decoration: none; }
+  .rang .label:hover { color: var(--fg); }
   form.suche { display: flex; gap: .5rem; margin-bottom: 1.2rem; }
   form.suche input[type=search] { flex: 1; padding: .5rem .7rem; border: 1px solid var(--rand); border-radius: 8px; font: inherit; background: var(--card); color: var(--fg); }
   input, select, button { font: inherit; }
@@ -465,19 +499,37 @@ export interface MaterialKarte {
   format: string | null
   zuordnungen: { code: string; label: string; href: string }[]
   disziplinCode: string // Disziplin-Kontext der Seite — Tag-Links bleiben in der Disziplin
-  aiScore: number // öffentlich «AI-Score» (intern qualityScore)
+  didaktikScore: number // öffentlich «Didaktik-Score» (intern qualityScore)
+  niveau: number | null // Niveau-Score 1–100, null = unbewertet
+  niveauBand: string | null
   score: number
   meinVote: number // +1 | 0 | -1
 }
 
-// Stack-Overflow-Stil: ▲ / Score / ▼ vertikal, getrennte Buttons.
-export function voteButtons(m: { id: number; score: number; meinVote: number }, eingeloggt: boolean): string {
+// Didaktik-Score als Rechnung (grün): KI-Bewertung + 5 × Stimmen, Ergebnis klein darunter. Die Stimmen
+// sind der Vote-Knopf mitten in der Rechnung; ein Vote tauscht die ganze Gruppe (hx-target .rang).
+export function rangGruppe(m: { id: number; score: number; meinVote: number; didaktikScore: number }, eingeloggt: boolean): string {
+  const summe = m.didaktikScore + 5 * m.score
+  return `<div class="rang">
+  <div class="rang-grid">
+    <a class="zahl" href="/sortierung" title="KI-Bewertung: ${m.didaktikScore} · ${bandName(m.didaktikScore)} — wie wird sortiert?">${m.didaktikScore}</a>
+    <span class="op plus">+</span>
+    <span class="op faktor">5 ×</span>
+    <span class="zahl stimmen">${m.score}</span>
+    ${votePfeile(m, eingeloggt)}
+    <span class="klein ki">KI</span><span class="klein humans">Humans</span>
+  </div>
+  <a class="label" href="/sortierung" title="Didaktik-Score = KI-Bewertung + 5 × Netto-Stimmen — wie wird sortiert?">Didaktik-Score: <strong>${summe}</strong></a>
+</div>`
+}
+
+// Kleine ▲/▼ rechts neben der Stimmenzahl; ein Vote tauscht die ganze .rang-Gruppe.
+function votePfeile(m: { id: number; meinVote: number }, eingeloggt: boolean): string {
   if (!eingeloggt)
-    return `<div class="voten"><a class="pfeil" href="/login" title="Zum Voten anmelden">▲</a><span class="score">${m.score}</span><a class="pfeil" href="/login" title="Zum Voten anmelden">▼</a></div>`
-  return `<div class="voten">
-  <button class="pfeil${m.meinVote > 0 ? ' aktiv' : ''}" hx-post="/vote/${m.id}/up" hx-target="closest .voten" hx-swap="outerHTML" title="Upvote">▲</button>
-  <span class="score">${m.score}</span>
-  <button class="pfeil${m.meinVote < 0 ? ' aktiv' : ''}" hx-post="/vote/${m.id}/down" hx-target="closest .voten" hx-swap="outerHTML" title="Downvote">▼</button>
+    return `<div class="pfeile"><a class="pfeil" href="/login" title="Zum Voten anmelden">▲</a><a class="pfeil" href="/login" title="Zum Voten anmelden">▼</a></div>`
+  return `<div class="pfeile">
+  <button class="pfeil${m.meinVote > 0 ? ' aktiv' : ''}" hx-post="/vote/${m.id}/up" hx-target="closest .rang" hx-swap="outerHTML" title="Upvote">▲</button>
+  <button class="pfeil${m.meinVote < 0 ? ' aktiv' : ''}" hx-post="/vote/${m.id}/down" hx-target="closest .rang" hx-swap="outerHTML" title="Downvote">▼</button>
 </div>`
 }
 
@@ -528,27 +580,32 @@ export function tagVorschlagChip(v: TagVorschlag, eingeloggt: boolean): string {
 // zeigen einen blauen Punkt.
 export interface FilterChip {
   wert: string
+  label?: string // Anzeige, falls abweichend vom Wert
   anzahl: number
   aktiv: boolean
 }
 
-export function filterLeiste(quellen: FilterChip[], tags: FilterChip[], formate: FilterChip[], vorschlaege: TagVorschlag[] = [], eingeloggt = false): string {
+export function filterLeiste(quellen: FilterChip[], tags: FilterChip[], formate: FilterChip[], vorschlaege: TagVorschlag[] = [], eingeloggt = false, niveau: FilterChip[] = [], sort = ''): string {
   const chevron = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>`
   const kategorien: [string, string, FilterChip[]][] = [
     ['quellen', 'Quellen', quellen],
     ['tags', 'Tags', tags],
     ['format', 'Format', formate],
+    ['niveau', 'Niveau-Score', niveau],
   ]
+  const sortierungen: [string, string][] = [['', 'Didaktik-Score'], ['niveau-auf', 'Niveau-Score ↑'], ['niveau-ab', 'Niveau-Score ↓']]
   return `<div class="qfilter">
 <div class="fkats">
 ${kategorien.map(([k, name, werte]) => `<button class="fkat${werte.some((w) => w.aktiv) ? ' mit-punkt' : ''}" data-k="${k}" onclick="fkatWaehlen('${k}')">${chevron}${name}<span class="punkt"></span></button>`).join('')}
 <button class="fkat freset" onclick="filterReset()" title="Alle Filter zurücksetzen">reset</button>
+<label class="fkat sortwahl">Sortierung <select class="${sort.startsWith('niveau') ? 'g-niveau' : 'g-didaktik'}" onchange="sortWaehlen(this.value)">${sortierungen.map(([v, n]) => `<option value="${v}"${v === sort ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
 <a class="fkat sortinfo" href="/sortierung">Wie wird sortiert?</a>
 </div>
 ${kategorien
   .map(
     ([k, , werte]) => `<div class="fchips" data-k="${k}">
-${werte.map((w) => `<button class="qchip${w.aktiv ? ' aktiv' : ''}" onclick="fltrToggle('${k}','${esc(w.wert)}')">${esc(w.wert)}<span class="chipzahl">${w.anzahl}</span></button>`).join('')}
+${werte.map((w) => `<button class="qchip${w.aktiv ? ' aktiv' : ''}" onclick="fltrToggle('${k}','${esc(w.wert)}')">${esc(w.label ?? w.wert)}<span class="chipzahl">${w.anzahl}</span></button>`).join('')}
+${k === 'niveau' ? `<span class="nivpresets"><button class="qchip" onclick="fltrSet('niveau',['Sek I','Übergang'])">Einstieg</button><button class="qchip" onclick="fltrSet('niveau',['Gymnasium vertieft','Hochschule'])">Spitzenförderung</button><a class="meta" href="/niveau">Was ist das?</a></span>` : ''}
 ${k === 'tags' ? vorschlaege.map((v) => tagVorschlagChip(v, eingeloggt)).join('') : ''}
 </div>`
   )
@@ -568,9 +625,11 @@ export function materialKarte(m: MaterialKarte, eingeloggt: boolean, admin = fal
       <div>${m.format ? `<span class="tag format">${esc(m.format)}</span>` : ''}${m.tags.map((t) => `<a class="tag" href="/suche?tag=${encodeURIComponent(t)}&disziplin=${encodeURIComponent(m.disziplinCode)}">${esc(t)}</a>`).join('')}
       ${m.zuordnungen.map((z) => `<a class="tag ziel" href="${z.href}" title="${esc(z.label)}">${esc(z.code)}</a>`).join('')}</div>
     </div>
-    <a class="aiscore" href="/sortierung" title="AI-Score: ${m.aiScore} · ${bandName(m.aiScore)} — wie wird sortiert?"><span class="zahl">${m.aiScore}</span><span class="label">AI-Score</span></a>
-    <div style="display:flex;flex-direction:column;gap:.4rem;align-items:center">
-      ${voteButtons(m, eingeloggt)}
+    <div style="display:flex;flex-direction:column;gap:.4rem;align-items:flex-end">
+      <div class="scores">
+    ${m.niveau != null ? `<a class="didaktikscore niveauscore" href="/niveau" title="Niveau-Score: ${m.niveau} · ${esc(m.niveauBand)} — wie wird das bestimmt?"><span class="oben"><span class="zahl">${m.niveau}</span><span class="klein">KI</span></span><span class="nlabel">Niveau-Score</span></a>` : ''}
+      ${rangGruppe(m, eingeloggt)}
+      </div>
       ${admin ? `<button class="pfeil" title="Karte ausblenden (Admin)" hx-post="/admin/material/${m.id}/verstecken" hx-target="closest .karte" hx-swap="outerHTML" hx-confirm="Karte ausblenden?">✕</button>` : ''}
     </div>
   </div>
