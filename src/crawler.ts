@@ -183,39 +183,73 @@ async function raeumeAuf(quelleId: number, gesehen: Set<string>, gedeckelt: bool
 // verlinkt, ist es. PDFs sind die Ausnahme (Skripte, Arbeitsblätter) und laufen durch pdftotext.
 const BINAER = /\.(pdf|zip|png|jpe?g|gif|svg|ico|css|js|json|mp[34]|og[gv]|wav|webm|woff2?|xml|txt|webmanifest|docx?|odt|pptx?|odp|xlsx?|ods|jar|war|class|exe|msi|dmg|apk|tar|gz|tgz|7z|rar)(\?|$)/i
 
-// Verlinkte Office-Dokumente sind kein eigenes Material, aber ihr Inhalt zählt für die
-// Bewertung der verlinkenden Seite: Text extrahieren und anhängen. Deckel gegen
-// Materialsammlungen mit Dutzenden Anhängen; Cache pro Crawl-Lauf (gleiches Dokument
-// von mehreren Seiten verlinkt → einmal laden).
-const ANHANG = /\.(docx|odt|pptx)(\?|$)/i
+// Verlinkte Dateien (PDF, Word, PowerPoint, OpenDocument). Ob sie eigene Materialien werden oder
+// in die Bewertung der verlinkenden Seite einfliessen, entscheidet der eigene Text der Seite:
+// Hub-Seite (wenig eigener Text, viele Dateien — Verzeichnis wie swisseduc/ABZ/DokuWiki-Themenseiten)
+// → jede Datei ein eigenes Material; Inhaltsseite (Erklärung mit Beilagen) → Dateitext anhängen.
+// Schwellen an echten Quellen gemessen (Sept. 2026): Hubs 300–2300 Zeichen oder <600 Zeichen pro
+// Datei, Inhaltsseiten (oinf, informatikgarten) 7000+ Zeichen mit wenigen Dateien.
+const DATEI_EXT = ['.pdf', '.docx', '.doc', '.odt', '.pptx', '.ppt']
+const HUB_MAX_ZEICHEN = 2500
+const HUB_MIN_DATEIEN = 5
+const HUB_ZEICHEN_PRO_DATEI = 600
+const DATEI_CTYPE: [RegExp, string][] = [
+  [/application\/pdf/i, '.pdf'],
+  [/wordprocessingml/i, '.docx'],
+  [/presentationml/i, '.pptx'],
+  [/msword/i, '.doc'],
+  [/ms-powerpoint/i, '.ppt'],
+  [/opendocument\.text/i, '.odt'],
+]
+// Endung aus Pfad oder DokuWiki-Parameter (fetch.php?media=ns:datei.pdf); sonst null
+function dateiExt(u: URL): string | null {
+  for (const k of [u.pathname, u.searchParams.get('media') ?? '']) {
+    const e = path.extname(k.split(':').pop() ?? '').toLowerCase()
+    if (DATEI_EXT.includes(e)) return e
+  }
+  return null
+}
+const extAusCtype = (ctype: string) => DATEI_CTYPE.find(([re]) => re.test(ctype))?.[1] ?? null
+
+// Datei-Links einer Seite (gleicher Host) → URL → Endung
+function dateiLinks(seitenUrl: string, html: string): Map<string, string> {
+  const basis = new URL(seitenUrl)
+  const links = new Map<string, string>()
+  for (const m of html.matchAll(/href="([^"#]+)"/g)) {
+    try {
+      const u = new URL(m[1].replace(/&amp;/g, '&'), seitenUrl)
+      const ext = u.hostname === basis.hostname ? dateiExt(u) : null
+      if (ext) { u.hash = ''; links.set(u.toString(), ext) }
+    } catch { /* kaputte hrefs ignorieren */ }
+  }
+  return links
+}
+
+// Antwort einer Datei-URL → Text (über temporäre Datei, weil pdftotext/catdoc Dateien lesen)
+async function dateiAusAntwort(res: Response, ext: string, quelleId: number, maxBytes = PDF_MAX_BYTES): Promise<string | null> {
+  if (Number(res.headers.get('content-length') ?? 0) > maxBytes) return null // Bücher/Scans: zu gross
+  const tmp = path.join(process.cwd(), 'data', 'tmp', `datei-${quelleId}-${hash(res.url + Math.random()).slice(0, 12)}${ext}`)
+  await fs.mkdir(path.dirname(tmp), { recursive: true })
+  await fs.writeFile(tmp, Buffer.from(await res.arrayBuffer()))
+  try { return (await dateiText(tmp))?.trim() || null } finally { await fs.rm(tmp, { force: true }) }
+}
+
+// Anhänge von Inhaltsseiten: Deckel gegen Sammlungen mit Dutzenden Dateien; Cache pro
+// Crawl-Lauf (gleiche Datei von mehreren Seiten verlinkt → einmal laden)
 const ANHANG_MAX_PRO_SEITE = 8
 const ANHANG_MAX_BYTES = 10 * 1024 * 1024
 const ANHANG_MAX_ZEICHEN = 8000
 
-async function anhaengeText(seitenUrl: string, html: string, cache: Map<string, string | null>, quelleId: number): Promise<string> {
-  const basis = new URL(seitenUrl)
-  const links = new Set<string>()
-  for (const m of html.matchAll(/href="([^"#]+)"/g)) {
-    try {
-      const u = new URL(m[1].replace(/&amp;/g, '&'), seitenUrl)
-      if (u.hostname === basis.hostname && ANHANG.test(u.pathname)) { u.hash = ''; links.add(u.toString()) }
-    } catch { /* kaputte hrefs ignorieren */ }
-  }
+async function anhaengeText(links: Map<string, string>, cache: Map<string, string | null>, quelleId: number): Promise<string> {
   const teile: string[] = []
-  for (const url of [...links].slice(0, ANHANG_MAX_PRO_SEITE)) {
+  for (const [url, ext] of [...links].slice(0, ANHANG_MAX_PRO_SEITE)) {
     if (!cache.has(url)) {
       let text: string | null = null
       try {
         const res = await fetchSeite(url)
-        if (res.ok && Number(res.headers.get('content-length') ?? 0) <= ANHANG_MAX_BYTES) {
-          const ext = path.extname(new URL(url).pathname).toLowerCase()
-          const tmp = path.join(process.cwd(), 'data', 'tmp', `anhang-${quelleId}-${hash(url).slice(0, 12)}${ext}`)
-          await fs.mkdir(path.dirname(tmp), { recursive: true })
-          await fs.writeFile(tmp, Buffer.from(await res.arrayBuffer()))
-          try { text = await dateiText(tmp) } finally { await fs.rm(tmp, { force: true }) }
-        }
+        if (res.ok) text = await dateiAusAntwort(res, ext, quelleId, ANHANG_MAX_BYTES)
       } catch { text = null }
-      cache.set(url, text?.trim() ? text.trim().slice(0, ANHANG_MAX_ZEICHEN) : null)
+      cache.set(url, text ? text.slice(0, ANHANG_MAX_ZEICHEN) : null)
     }
     const text = cache.get(url)
     if (text) teile.push(`\n\n--- Anhang: ${decodeURIComponent(path.basename(new URL(url).pathname))} ---\n${text}`)
@@ -287,6 +321,13 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
     if (/cf-chl|cloudflare|Just a moment|challenge-platform|captcha/i.test(body)) throw new Error(`Bot-Sperre (HTTP ${startRes.status})`)
     throw new Error(`HTTP ${startRes.status}`)
   }
+  const startExt = dateiExt(new URL(startRes.url || quelle.url)) ?? extAusCtype(startRes.headers.get('content-type') ?? '')
+  if (startExt) {
+    const text = await dateiAusAntwort(startRes, startExt, quelle.id)
+    if (!text) return 'Datei ohne lesbaren Text'
+    const r = await verarbeiteMaterial(quelle.id, quelle.url, text, hash(text), ctx, force, true, formatFuerExt(startExt))
+    return `1 Datei (${startExt}): ${r}`
+  }
   const startHtml = await startRes.text()
 
   const origin = new URL(quelle.url).origin
@@ -296,12 +337,12 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   // Zeigt die Quelle auf eine Datei (…/physik_index.html, /doku.php), zählt deren
   // Ordner als Präfix — unterhalb einer Datei läge sonst nie eine zweite Seite.
   const basisPfad = new URL(quelle.url).pathname.replace(/\/[^/]*\.[^/]+$/, '').replace(/\/$/, '')
-  // PDFs sind bei klassischen Lehrer-Seiten (Link-Liste → Arbeitsblätter) das eigentliche
-  // Material — die laufen durch pdftotext; andere Binärdateien bleiben draussen.
+  // Lesbare Dateien (PDF/Office) aus der Sitemap sind eigene Materialien; andere Binärdateien
+  // bleiben draussen. Datei-Links auf Seiten behandelt der HTML-Zweig (Hub vs. Inhaltsseite).
   const passt = (u: string) => {
     try {
       const p = new URL(u)
-      if (p.hostname !== host || (BINAER.test(p.pathname) && !/\.pdf(\?|$)/i.test(p.pathname))) return false
+      if (p.hostname !== host || (BINAER.test(p.pathname) && !dateiExt(p))) return false
       return basisPfad === '' || p.pathname === basisPfad || p.pathname.startsWith(basisPfad + '/')
     } catch { return false }
   }
@@ -324,9 +365,10 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   const laufend = new Set<Promise<void>>()
   const hashesLaufend = new Set<string>()
   const verarbeitet = () => stat.neu + stat.aktualisiert + stat.abgelehnt + laufend.size
-  // Höflichkeit: kurze Pause zwischen Seiten; bei 429 (Rate-Limit) einmal warten
-  // und wiederholen, bei gehäuften 429ern die Quelle für diese Nacht aufgeben.
-  const PAUSE_MS = 400
+  // Höflichkeit: kurze Pause zwischen Seiten; bei 429 (Rate-Limit) warten (Retry-After, sonst 10 s),
+  // wiederholen und die Pause für den Rest der Quelle verdoppeln (Datei-Sammlungen auf kleinen
+  // Servern, z.B. DokuWiki-fetch.php); erst bei gehäuften 429ern die Quelle für diese Nacht aufgeben.
+  let pauseMs = 400
   let rateLimits = 0
   let abgebrochen = false // Abbruch zählt wie gedeckelt: fehlende URLs nicht als tot werten
   while (queue.length && besucht < (maxSeiten === Infinity ? 10000 : 1000) && verarbeitet() < maxSeiten) {
@@ -343,7 +385,7 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
         ohneDownload++
         continue
       }
-      if (besucht > 1) await new Promise((r) => setTimeout(r, PAUSE_MS))
+      if (besucht > 1) await new Promise((r) => setTimeout(r, pauseMs))
       const cond: Record<string, string> = {}
       if (bekannt?.httpEtag) cond['If-None-Match'] = bekannt.httpEtag
       if (bekannt?.httpLastMod) cond['If-Modified-Since'] = bekannt.httpLastMod
@@ -359,8 +401,10 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
       let effektiveUrl = url
       if (res?.status === 429) {
         rateLimits++
-        if (rateLimits > 5) { abgebrochen = true; console.error(`Rate-Limit bei ${url} — Quelle für diese Nacht abgebrochen`); break }
-        await new Promise((r) => setTimeout(r, 10000))
+        if (rateLimits > 10) { abgebrochen = true; console.error(`Rate-Limit bei ${url} — Quelle für diese Nacht abgebrochen`); break }
+        pauseMs = Math.min(pauseMs * 2, 8000)
+        const retryAfter = Number(res.headers.get('retry-after'))
+        await new Promise((r) => setTimeout(r, retryAfter > 0 && retryAfter <= 120 ? retryAfter * 1000 : 10000))
         res = await fetchSeite(url)
       }
       // VitePress & Co. mit cleanUrls: Links enden auf .html, Seiten liegen ohne Endung
@@ -377,15 +421,14 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
       const ctype = res?.headers.get('content-type') ?? 'text/html'
       let text: string
       let format = 'webseite'
-      if (res && (/application\/pdf/i.test(ctype) || /\.pdf(\?|$)/i.test(effektiveUrl))) {
-        // Erkennung über Content-Type (DokuWiki fetch.php & Co.) oder Endung
-        const laenge = Number(res.headers.get('content-length') ?? 0)
-        if (laenge > PDF_MAX_BYTES) continue // Bücher/Scans: zu gross für pdftotext + AI
-        const tmp = path.join(process.cwd(), 'data', 'tmp', `web-${quelle.id}.pdf`)
-        await fs.mkdir(path.dirname(tmp), { recursive: true })
-        await fs.writeFile(tmp, Buffer.from(await res.arrayBuffer()))
-        try { text = await pdftotext(tmp) } finally { await fs.rm(tmp, { force: true }) }
-        format = 'pdf'
+      const ext = res ? dateiExt(new URL(effektiveUrl)) ?? extAusCtype(ctype) : null
+      if (res && ext) {
+        // Datei (aus Sitemap oder von einer Hub-Seite): Erkennung über Endung, DokuWiki-media-Parameter
+        // oder Content-Type (fetch.php & Co.)
+        const t = await dateiAusAntwort(res, ext, quelle.id)
+        if (!t) continue // zu gross oder kein Text (z.B. gescanntes PDF)
+        text = t
+        format = formatFuerExt(ext)
       } else if (res && !/html|xml/i.test(ctype)) {
         // css.php, Downloads ohne Endung, Feeds … gar nicht erst zur AI. Ein Alt-Material unter
         // dieser URL (aus Crawls vor diesem Filter) sofort weg — bei gedeckelten Quellen
@@ -407,7 +450,17 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
         // URL dasselbe serverseitige Gerüst — z.B. Eduskript-Sites, solange deren
         // Markdown-Export fehlt).
         try { text = await extract(html) } catch { text = stripTags(html) }
-        text += await anhaengeText((res ?? startRes).url || effektiveUrl, html, anhangCache, quelle.id)
+        const dateien = dateiLinks((res ?? startRes).url || effektiveUrl, html)
+        const hub = dateien.size > 0 &&
+          (text.length < HUB_MAX_ZEICHEN || (dateien.size >= HUB_MIN_DATEIEN && text.length / dateien.size < HUB_ZEICHEN_PRO_DATEI))
+        if (hub) {
+          // Dateien vorne einreihen, damit sie auch bei Deckel/Abbruch bald drankommen
+          const neu = [...dateien.keys()].filter((d) => !geplant.has(d))
+          neu.forEach((d) => geplant.add(d))
+          queue.unshift(...neu)
+        } else {
+          text += await anhaengeText(dateien, anhangCache, quelle.id)
+        }
       }
       gesehen.add(effektiveUrl)
       // Caching-Marker fürs nächste Mal (Startseite kommt aus startRes)
@@ -623,7 +676,7 @@ async function crawlGit(quelle: { id: number; url: string; contentHash: string |
 const CLOUD_BUDGET = 500 * 1024 * 1024 // Download-Budget pro Quelle und Nacht (OneDrive/Nextcloud)
 const CLOUD_DATEI_MAX = 50 * 1024 * 1024 // Einzeldatei-Limit
 const DROPBOX_ZIP_MAX = 200 * 1024 * 1024 // Zip ist alles-oder-nichts
-const CLOUD_EXTS = ['.md', '.markdown', '.txt', '.tex', '.html', '.htm', '.pdf', '.docx', '.odt', '.pptx']
+const CLOUD_EXTS = ['.md', '.markdown', '.txt', '.tex', '.html', '.htm', '.pdf', '.docx', '.doc', '.odt', '.pptx', '.ppt']
 // Videos: kein Download/Transkript (zu teuer für den VPS) — Dateiname+Pfad reichen der AI für eine Grob-Zuordnung
 const VIDEO_EXTS = ['.mp4', '.m4v', '.mov', '.webm', '.mkv', '.avi']
 
@@ -659,14 +712,17 @@ for i in z.infolist():
     open(d, 'wb').write(z.read(i))
 `
 
-function pdftotext(pfad: string): Promise<string> {
+// Textextraktion über CLI-Werkzeuge: pdftotext (poppler-utils), catdoc/catppt (catdoc) für alte Office-Formate
+function werkzeug(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    const p = spawn('pdftotext', [pfad, '-'], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] })
     let out = ''
     p.stdout.on('data', (d) => (out += d))
-    p.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`pdftotext exit ${code}`))))
+    p.on('error', reject)
+    p.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`${cmd} exit ${code}`))))
   })
 }
+const pdftotext = (pfad: string) => werkzeug('pdftotext', [pfad, '-'])
 
 async function dateiText(pfad: string): Promise<string | null> {
   const ext = path.extname(pfad).toLowerCase()
@@ -677,6 +733,8 @@ async function dateiText(pfad: string): Promise<string | null> {
       try { return await extract(html) } catch { return stripTags(html) }
     }
     if (ext === '.pdf') return await pdftotext(pfad)
+    if (ext === '.doc') return await werkzeug('catdoc', ['-w', '-d', 'utf-8', pfad])
+    if (ext === '.ppt') return await werkzeug('catppt', ['-d', 'utf-8', pfad])
     if (ext === '.docx' || ext === '.odt') {
       const inner = ext === '.docx' ? 'word/document.xml' : 'content.xml'
       const xml = await python(['-c', `import sys,zipfile;sys.stdout.write(zipfile.ZipFile(sys.argv[1]).read('${inner}').decode('utf8','ignore'))`, pfad])
@@ -861,10 +919,10 @@ async function listeDropboxZip(shareUrl: string, quelleId: number): Promise<Clou
 
 function formatFuerExt(ext: string): string {
   if (ext === '.pdf') return 'pdf'
-  if (ext === '.pptx') return 'präsentation'
+  if (['.pptx', '.ppt'].includes(ext)) return 'präsentation'
   if (['.md', '.markdown'].includes(ext)) return 'markdown'
   if (['.html', '.htm'].includes(ext)) return 'webseite'
-  return 'dokument' // docx, odt, txt, tex
+  return 'dokument' // docx, doc, odt, txt, tex
 }
 
 async function crawlCloud(quelle: { id: number; url: string; etag: string | null }, ctx: KlassifikationsKontext, force: boolean, maxSeiten = MAX_SEITEN): Promise<string> {
