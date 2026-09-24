@@ -72,6 +72,7 @@ ${SCORE_PROMPT}
       signal: AbortSignal.timeout(60000),
       body: JSON.stringify({
         model: MODEL,
+        max_tokens: 2000, // Antwort ist kurzes JSON; ohne Angabe reserviert OpenRouter das Modell-Maximum
         // Fester Teil (Raster, Tags, Aufgaben) zuerst und mit Cache-Breakpoint, Material zuletzt:
         // gleicher Präfix pro Fach-Kontext → Cache-Treffer zu 0.25× Input-Preis
         messages: [
@@ -102,6 +103,7 @@ ${SCORE_PROMPT}
         },
       }),
     })
+    if (res.status === 402) guthaben.leer = true // Guthaben aufgebraucht: Crawler bricht den ganzen Lauf ab
     if (!res.ok) throw new HttpFehler(res.status, `OpenRouter HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`)
     const data = (await res.json()) as {
       choices: { message: { content: string } }[]
@@ -116,6 +118,10 @@ ${SCORE_PROMPT}
     return JSON.parse(data.choices[0].message.content) as Klassifikation
   }))
 }
+
+// Leeres OpenRouter-Guthaben (HTTP 402) — Crawler prüft das und hört auf, statt weiterzulaufen
+// und dabei nur Fehler zu produzieren (Hub-Seiten würden gelöscht, ohne dass Dateien nachkommen)
+export const guthaben = { leer: false }
 
 // Verbrauch über den ganzen Lauf — der Crawler loggt ihn am Ende
 export const aiVerbrauch = { aufrufe: 0, input: 0, gecacht: 0, output: 0, kostenUsd: 0 }

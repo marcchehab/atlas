@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { prisma } from './db.js'
 import { extract, stripTags } from './extract.js'
-import { klassifiziere, ZuordnungsOption, verbrauchText } from './ai.js'
+import { klassifiziere, ZuordnungsOption, verbrauchText, guthaben } from './ai.js'
 import { fachAnker } from './niveau.js'
 import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
@@ -372,6 +372,7 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   let rateLimits = 0
   let abgebrochen = false // Abbruch zählt wie gedeckelt: fehlende URLs nicht als tot werten
   while (queue.length && besucht < (maxSeiten === Infinity ? 10000 : 1000) && verarbeitet() < maxSeiten) {
+    if (guthaben.leer) { abgebrochen = true; break }
     const url = queue.shift()!
     besucht++
     try {
@@ -1026,20 +1027,28 @@ export async function crawlQuelle(quelleId: number, force = false, sammelLauf = 
 }
 
 // Nächtlicher Lauf: alle nicht endgültig toten Quellen.
-// Aufruf: npm run crawl [-- --force] [-- --ab=<quelleId>] [-- --quelle=<quelleId>] [-- --gedeckelt=<id>,<id>]
+// Aufruf: npm run crawl [-- --force] [-- --ab=<quelleId>] [-- --quelle=<quelleId>] [-- --gedeckelt=<id>,<id>] [-- --nur-offene]
 // --force: Änderungserkennung umgehen, alles neu klassifizieren; --ab: erst ab dieser Quellen-Id
 // --quelle: nur diese eine Quelle, ohne Deckel (kein Verzeichnis-Sync)
 // ab: erst ab dieser Quellen-Id (inklusive) — Wiedereinstieg, wenn ein Force-Crawl
 // abgebrochen ist (z.B. AI-Credits aufgebraucht), ohne die fertigen Quellen nochmals zu bezahlen
 // gedeckelt: Quellen-Ids, die bei einem Lauf ohne Deckel (MAX_SEITEN=Infinity) trotzdem den
 // Standard-Deckel behalten — riesige Quellen wie Serlo (10k+ Einzelaufgaben) sollen Atlas nicht fluten
-export async function crawlAlle(force = false, ab = 0, gedeckelt: number[] = []) {
+// nurOffene: nur Quellen mit noch unbewerteten Materialien (niveau null) oder ganz ohne Materialien —
+// Wiedereinstieg nach einem abgebrochenen Neu-Crawl, ohne Fertiges nochmals zu bezahlen
+export async function crawlAlle(force = false, ab = 0, gedeckelt: number[] = [], nurOffene = false) {
   try {
     console.log(await syncEduskriptVerzeichnis())
   } catch (e) {
     console.error('Verzeichnis-Sync fehlgeschlagen:', (e as Error).message)
   }
-  const quellen = await prisma.quelle.findMany({ where: { todesCounter: { lt: TODES_SCHWELLE }, id: { gte: ab } }, orderBy: { id: 'asc' } })
+  const quellen = await prisma.quelle.findMany({
+    where: {
+      todesCounter: { lt: TODES_SCHWELLE }, id: { gte: ab },
+      ...(nurOffene ? { OR: [{ materialien: { some: { niveau: null } } }, { materialien: { none: {} } }] } : {}),
+    },
+    orderBy: { id: 'asc' },
+  })
   // Quellen desselben Website-Hosts nacheinander (Höflichkeit, z.B. eduskript.org/<site>),
   // verschiedene Hosts parallel; Git-/Cloud-Quellen sind je eine eigene Gruppe
   const gruppen = new Map<string, typeof quellen>()
@@ -1051,6 +1060,7 @@ export async function crawlAlle(force = false, ab = 0, gedeckelt: number[] = [])
   const worker = async () => {
     for (let g = offen.shift(); g; g = offen.shift()) {
       for (const q of g) {
+        if (guthaben.leer) return
         const resultat = await crawlQuelle(q.id, force, true, gedeckelt.includes(q.id) ? 200 : MAX_SEITEN)
         console.log(`${q.url} → ${resultat}`)
       }
@@ -1058,6 +1068,7 @@ export async function crawlAlle(force = false, ab = 0, gedeckelt: number[] = [])
   }
   await Promise.all(Array.from({ length: CRAWL_PARALLEL }, worker))
   await flushTagVorschlaege()
+  if (guthaben.leer) console.error('ABBRUCH: OpenRouter-Guthaben aufgebraucht (HTTP 402) — aufladen, dann mit --nur-offene weiter')
   console.log(verbrauchText())
 }
 
@@ -1068,6 +1079,6 @@ if (process.argv[1]?.endsWith('crawler.ts') || process.argv[1]?.endsWith('crawle
   const gedeckelt = (process.argv.find((a) => a.startsWith('--gedeckelt='))?.slice(12) ?? '').split(',').filter(Boolean).map(Number)
   const lauf = einzeln
     ? crawlQuelle(einzeln, force, false, Infinity).then((r) => console.log(r)).then(() => flushTagVorschlaege()).then(() => console.log(verbrauchText()))
-    : crawlAlle(force, ab, gedeckelt)
+    : crawlAlle(force, ab, gedeckelt, process.argv.includes('--nur-offene'))
   lauf.then(() => prisma.$disconnect())
 }
