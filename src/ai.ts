@@ -1,8 +1,9 @@
-import { NIVEAU_PROMPT } from './niveau.js'
+import { NIVEAU_PROMPT, KRITERIEN_PROMPT, Kriterium, KriteriumTreffer } from './niveau.js'
 
 export interface Klassifikation {
   qualityScore: number // 0–100; <20 = nicht aufgenommen
-  niveau: number // Niveau-Score 1–100 (fachliches Anspruchsniveau, siehe niveau.ts)
+  niveau: number // direkte Schätzung 1–100 (fachliches Anspruchsniveau, siehe niveau.ts)
+  kriterien: KriteriumTreffer[] // Tätigkeiten aus dem Katalog; leer, wenn die Disziplin keinen hat
   titel: string
   zusammenfassung: string
   zuordnungen: string[] // Codes: "T:<fach>:1.2" (ganzes Teilgebiet) oder "K:<fach>:1.2.1" (einzelne Kompetenz)
@@ -16,7 +17,10 @@ export interface ZuordnungsOption {
   label: string
 }
 
-const MODEL = process.env.AI_MODEL ?? 'google/gemini-3.5-flash-lite'
+// Modellwahl per Eval auf den Anker-Belegen (scripts/model-eval.ts, Sept. 2026): GLM 5.3 Flash traf das
+// Band wie GPT-6 Luna, mit bester Rangkorrelation und ohne Ausfälle; Reasoning ist dort Pflicht (low reicht)
+export const MODEL = process.env.AI_MODEL ?? 'z-ai/glm-5.3-flash'
+export const MODELL_NAME = 'GLM 5.3 Flash (Z.ai)'
 
 // Bewertungskriterien für den Didaktik-Score — Teil des Prompts und wörtlich auf /sortierung veröffentlicht
 export const SCORE_PROMPT = `1. qualityScore 0–100: Taugt das als Unterrichtsmaterial fürs Gymnasium, und wie gut?
@@ -43,7 +47,8 @@ export async function klassifiziere(
   text: string,
   optionen: ZuordnungsOption[],
   tagNamen: string[],
-  niveauAnker = '' // Fach-Anker der Disziplinen im Kontext (niveau/<disziplin>.md)
+  niveauAnker = '', // Fach-Anker der Disziplinen im Kontext (niveau/<disziplin>.md)
+  katalog: Kriterium[] = [] // Kriterienkatalog der Disziplinen im Kontext (niveau/kriterien-<disziplin>.md)
 ): Promise<Klassifikation> {
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) return mockKlassifikation(text, optionen, tagNamen)
@@ -63,7 +68,10 @@ ${SCORE_PROMPT}
 4. zuordnungen: abgedeckte Kompetenzen (K…); nur wenn ein Material ein Teilgebiet breit abdeckt, stattdessen dessen T…-Code. Leer, wenn nichts passt. Nur zuordnen, was der Text selbst unterrichtet — nicht, was er bloß erwähnt oder verlinkt. Kompetenzen mit Werkzeug-Bezug (z.B. «mittels Programmierung») nur, wenn dieses Werkzeug im Material tatsächlich eingesetzt wird — ein Tutorial zu einer Kreativ-Software ohne Programmieranteil erfüllt keine Programmier-Kompetenz.
 5. tags: passende Tags aus der erlaubten Liste
 6. neueTagVorschlaege: meist leer — nur ausnahmsweise max. 2 neue Tags (kleingeschrieben, generisch wiederverwendbar wie die erlaubten Tags), wenn ein zentraler Aspekt durch kein erlaubtes Tag abbildbar ist. Niemals Themen, die im Lehrplan-Raster oben schon vorkommen (z.B. kryptographie, netzwerke, algorithmen, datenbanken — dafür sind die Zuordnungen da). Tags beschreiben Form, Werkzeug oder Zugang, nicht das Thema. Keine Synonyme.
-7. ${NIVEAU_PROMPT}${niveauAnker ? `\n   Fach-Anker (Beispiele pro Band; nimm die Anker des Fachs, zu dem das Material gehört):\n${niveauAnker}` : ''}`
+7. ${NIVEAU_PROMPT}${niveauAnker ? `\n   Fach-Anker (Beispiele pro Band; nimm die Anker des Fachs, zu dem das Material gehört):\n${niveauAnker}` : ''}${katalog.length ? `
+8. ${KRITERIEN_PROMPT}
+   Katalog (id: Tätigkeit):
+${katalog.map((k) => `   ${k.id}: ${k.text}`).join('\n')}` : ''}`
 
   return mitSlot(() => mitRetry(async () => {
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -72,7 +80,11 @@ ${SCORE_PROMPT}
       signal: AbortSignal.timeout(60000),
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 2000, // Antwort ist kurzes JSON; ohne Angabe reserviert OpenRouter das Modell-Maximum
+        // Antwort ist kurzes JSON, aber das Reasoning braucht Platz; ohne Angabe reserviert OpenRouter das Modell-Maximum
+        max_tokens: Number(process.env.AI_MAX_TOKENS) || 8000,
+        // Reasoning-Modelle (DeepSeek, Qwen …) verbrauchen sonst das Token-Limit fürs Nachdenken und liefern leer
+        ...(process.env.AI_OHNE_REASONING ? { reasoning: { enabled: false } } : {}),
+        ...(process.env.AI_OHNE_REASONING ? {} : { reasoning: { effort: process.env.AI_REASONING_EFFORT ?? 'low' } }),
         // Fester Teil (Raster, Tags, Aufgaben) zuerst und mit Cache-Breakpoint, Material zuletzt:
         // gleicher Präfix pro Fach-Kontext → Cache-Treffer zu 0.25× Input-Preis
         messages: [
@@ -80,6 +92,9 @@ ${SCORE_PROMPT}
           { role: 'user', content: `Material:\n${text.slice(0, 30000)}` },
         ],
         usage: { include: true },
+        // Nur Anbieter, die alle Parameter (json_schema strict, reasoning) können — sonst liefern manche
+        // (z.B. Together, OpenInference bei GLM) still eine leere Antwort
+        provider: { require_parameters: true, ignore: (process.env.AI_ANBIETER_IGNORIEREN ?? 'OpenInference,Together').split(',').filter(Boolean) },
         response_format: {
           type: 'json_schema',
           json_schema: {
@@ -96,8 +111,16 @@ ${SCORE_PROMPT}
                 zuordnungen: { type: 'array', items: { type: 'string', enum: optionen.map((o) => o.code) } },
                 tags: { type: 'array', items: { type: 'string', enum: tagNamen } },
                 neueTagVorschlaege: { type: 'array', items: { type: 'string' } },
+                ...(katalog.length ? { kriterien: {
+                  type: 'array',
+                  items: {
+                    type: 'object', additionalProperties: false,
+                    properties: { id: { type: 'string', enum: katalog.map((k) => k.id) }, gewicht: { type: 'integer' } },
+                    required: ['id', 'gewicht'],
+                  },
+                } } : {}),
               },
-              required: ['qualityScore', 'niveau', 'titel', 'zusammenfassung', 'zuordnungen', 'tags', 'neueTagVorschlaege'],
+              required: ['qualityScore', 'niveau', 'titel', 'zusammenfassung', 'zuordnungen', 'tags', 'neueTagVorschlaege', ...(katalog.length ? ['kriterien'] : [])],
             },
           },
         },
@@ -115,7 +138,17 @@ ${SCORE_PROMPT}
     aiVerbrauch.gecacht += u?.prompt_tokens_details?.cached_tokens ?? 0
     aiVerbrauch.output += u?.completion_tokens ?? 0
     aiVerbrauch.kostenUsd += u?.cost ?? 0
-    return JSON.parse(data.choices[0].message.content) as Klassifikation
+    const inhalt = data.choices?.[0]?.message?.content
+    if (!inhalt) throw new HttpFehler(502, 'leere Antwort vom Anbieter') // → Retry, landet meist bei einem anderen Anbieter
+    const k = JSON.parse(inhalt) as Klassifikation
+    // Kriterien säubern: nur Katalog-ids, Gewicht 1–3, jede id höchstens einmal
+    const erlaubt = new Set(katalog.map((x) => x.id))
+    const einmalig = new Map<string, number>()
+    for (const t of k.kriterien ?? []) {
+      if (erlaubt.has(t.id)) einmalig.set(t.id, Math.min(3, Math.max(1, Math.round(t.gewicht))))
+    }
+    k.kriterien = [...einmalig].map(([id, gewicht]) => ({ id, gewicht }))
+    return k
   }))
 }
 
@@ -173,5 +206,6 @@ function mockKlassifikation(text: string, optionen: ZuordnungsOption[], tagNamen
     zuordnungen,
     tags: tagNamen.filter((t) => lower.includes(t.toLowerCase())).slice(0, 3),
     neueTagVorschlaege: [],
+    kriterien: [],
   }
 }

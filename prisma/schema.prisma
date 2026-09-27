@@ -105,6 +105,7 @@ model Material {
   zusammenfassung String
   qualityScore   Int? // pro Material — eine Quelle kann gute und schwache Seiten enthalten
   niveau         Int? // Niveau-Score 1–100 (fachliches Anspruchsniveau, siehe src/niveau.ts); null = unbewertet
+  niveauKi       Int? // die direkte Schätzung der KI, unabhängig von den Kriterien — Rückfall und Vergleichswert
   format         String? // deterministisch vom Crawler: webseite|markdown|repo|pdf|dokument|präsentation|video
   fehlCounter    Int                @default(0) // Crawls in Folge, in denen die URL fehlte; >=3 = ausgeblendet
   versteckt      Boolean            @default(false) // von Admin ausgeblendet
@@ -117,9 +118,25 @@ model Material {
   createdAt      DateTime           @default(now())
   zuordnungen    MaterialZuordnung[]
   tags           MaterialTag[]
+  kriterien      MaterialKriterium[]
   upvotes        Upvote[]
 
   @@index([quelleId])
+}
+
+// Welche Tätigkeiten aus dem Kriterienkatalog (niveau/kriterien-<disziplin>.md) im Material
+// vorkommen und wie zentral. Aus diesen Zeilen rechnet berechneNiveau() den Niveau-Score.
+// Die kriteriumId ist bewusst ein String und keine Relation: Der Katalog ist eine Datei im Repo,
+// keine Tabelle, und die ids sind stabil. Damit lässt sich der Score nach einer Korrektur der
+// Kriterien-Niveaus neu rechnen, ohne die Materialien neu zu crawlen.
+model MaterialKriterium {
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  materialId Int
+  kriteriumId String
+  gewicht    Int // 1 = am Rande, 2 = deutlich, 3 = zentral
+
+  @@id([materialId, kriteriumId])
+  @@index([kriteriumId])
 }
 
 // Material kann einem ganzen Teilgebiet oder einer einzelnen Kompetenz zugeordnet sein.

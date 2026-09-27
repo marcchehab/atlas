@@ -7,8 +7,8 @@ import { crawlQuelle } from './crawler.js'
 import * as auth from './auth.js'
 import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
-import { SCORE_PROMPT, SCORE_BAENDER } from './ai.js'
-import { NIVEAU_PROMPT, NIVEAU_BAENDER, niveauBandName, fachAnker, mdZuHtml } from './niveau.js'
+import { SCORE_PROMPT, SCORE_BAENDER, MODELL_NAME } from './ai.js'
+import { NIVEAU_PROMPT, NIVEAU_BAENDER, niveauBandName, fachAnker, fachKriterien, KRITERIEN_PROMPT, mdZuHtml } from './niveau.js'
 import { layout, esc, kürze, sidebar, materialKarte, rangGruppe, loginSeite, filterLeiste, tagVorschlagChip, quellenKey, MaterialKarte, TagVorschlag, FilterChip, BASE_URL, tgPfad, koPfad, grossErst } from './views.js'
 
 const app = express()
@@ -832,7 +832,7 @@ ${SCORE_BAENDER.map(([von, name, kurz], i) => `<tr><td>${von}–${(SCORE_BAENDER
 <h2>Der Prompt</h2>
 <p class="meta">Wörtlich der Teil des Klassifikations-Prompts, der die KI-Bewertung bestimmt — direkt aus dem Quelltext, damit diese Seite nie veraltet.</p>
 <pre style="white-space:pre-wrap;font-size:.8rem;background:var(--card);border:1px solid var(--rand);border-radius:10px;padding:.9rem 1.1rem">${esc(SCORE_PROMPT)}</pre>
-<p class="meta">Modell: Gemini Flash Lite. Der ganze Code ist offen: <a href="https://github.com/marcchehab/atlas" rel="noopener">github.com/marcchehab/atlas</a>.</p>
+<p class="meta">Modell: ${MODELL_NAME}. Der ganze Code ist offen: <a href="https://github.com/marcchehab/atlas" rel="noopener">github.com/marcchehab/atlas</a>.</p>
 <p>Getrennt davon gibt es den <a href="/niveau">Niveau-Score</a>: Für welche Stufe ist ein Material fachlich gemacht?</p>`
   res.send(layout('Wie wird sortiert?', side, body, user, { pfad: '/sortierung', beschreibung: 'So sortiert Atlas Unterrichtsmaterial: Didaktik-Score in fünf Bändern plus Stimmen der Community — mit dem vollständigen Bewertungs-Prompt.' }))
 })
@@ -846,8 +846,19 @@ app.get('/niveau', async (req, res) => {
   const faecher = disziplinen.map((d) => {
     const a = fachAnker(d.code)
     if (!a) return `<h3>${esc(d.name)}</h3><p class="meta">Noch keine Fach-Anker. Bewertet wird nur mit der allgemeinen Skala.</p>`
+    const ks = fachKriterien(d.code)
+    const gruppen = [...new Map((ks ?? []).map((k) => [k.gruppe, true])).keys()]
+    const katalog = ks
+      ? `<details><summary>Kriterienkatalog (${ks.length} Tätigkeiten)</summary>
+<p class="meta">Erfasst werden die Tätigkeiten, die im Material vorkommen, je mit einem Gewicht von 1 bis 3; der Score daraus ist ihr gewichteter Median. Kommt keine davon vor, gilt die direkte Schätzung der KI.</p>
+<table><tr><th>Niveau</th><th>Tätigkeit</th></tr>
+${gruppen.map((g) => `<tr><td colspan="2"><strong>${esc(g)}</strong></td></tr>
+${ks.filter((k) => k.gruppe === g).map((k) => `<tr><td>${k.niveau}</td><td>${esc(k.text)}</td></tr>`).join('\n')}`).join('\n')}
+</table></details>`
+      : `<p class="meta">Noch kein Kriterienkatalog — bewertet wird mit der direkten Schätzung der KI.</p>`
     return `<h3 id="${esc(d.code)}">${esc(d.name)}</h3>
 <pre ${pre}>${esc(a.anker)}</pre>
+${katalog}
 ${a.abschnitte.map((t) => `<details><summary>${esc(t.titel)}</summary>\n${mdZuHtml(t.markdown)}\n</details>`).join('\n')}`
   }).join('\n')
   const body = `<h1>Wie wird der Niveau-Score bestimmt?</h1>
@@ -864,23 +875,32 @@ ${NIVEAU_BAENDER.map(([von, name, kurz], i) => `<tr><td>${von}–${(NIVEAU_BAEND
 <p>Bewertet wird nach vier Kriterien, die für jedes Fach gelten: vorausgesetztes Vorwissen, Abstraktion und Formalisierung, Tiefe (Phänomen → Modell → Herleitung) und Anforderung der Aufgaben (Reproduktion, Anwendung, Transfer/Begründung/Beweis).
 Massgebend ist, was ein Material verlangt, nicht sein Thema: Trigonometrie kann auf 30 oder auf 70 liegen.</p>
 <h2>Methodik: Fach-Anker aus Belegen</h2>
-<p>Eine allgemeine Skala allein ist zu ungenau. Pro Fach gibt es deshalb <strong>Fach-Anker</strong>: 10–15 Zeilen mit Beispielen, was in jedem Band typischerweise verlangt wird.
+<p>Eine allgemeine Skala allein ist zu ungenau. Pro Fach gibt es deshalb <strong>Fach-Anker</strong>: eine Zeile pro Band mit Beispielen, was dort typischerweise verlangt wird.
 Die Anker sind nicht von Hand geschrieben, sondern aus <strong>öffentlichen Belegen hergeleitet, deren Stufe bekannt ist</strong>:</p>
 <ul>
-<li><strong>Sek I:</strong> Lehrplan 21, Aufnahmeprüfungen ans Gymnasium, Sek-I-Lehrmittel, Informatik-Biber nach Altersstufen</li>
+<li><strong>Sek I:</strong> Lehrplan 21, Aufnahmeprüfungen ans Gymnasium, Sek-I-Lehrmittel</li>
 <li><strong>Gymnasium:</strong> schriftliche Maturprüfungen, Rahmenlehrplan 2024, Prüfungen und Lernziele von Gymnasiallehrpersonen</li>
 <li><strong>Vertieft:</strong> Maturprüfungen in Schwerpunkt- und Ergänzungsfächern, erste Runden der Wissenschafts-Olympiaden</li>
 <li><strong>Hochschule:</strong> Olympiade-Finalrunden, Übungen und Prüfungen aus dem ersten Studienjahr (ETH, EPFL)</li>
 </ul>
 <p>Wo es keine Maturprüfung gibt (z.B. Grundlagenfach Informatik), zeigt das, was Gymnasien tatsächlich unterrichten, wo der Kern liegt.
 Alle Belege sind unten verlinkt, samt den Lücken und Unsicherheiten pro Fach.</p>
+<p>Eine erste Fassung der Anker stufte gymnasiale Routine — Binärzahlen umrechnen, Code nachvollziehen, Caesar anwenden — zu tief ein, weil sie vom Anspruch von Prüfungen ausging statt von dem, was im Unterricht tatsächlich gemacht wird. Eine Gymnasiallehrperson hat die Informatik-Anker daraufhin korrigiert und gekürzt; Mathematik, Physik und Chemie sind fachlich noch nicht gegengelesen.</p>
+
+<h2>Vom Anker zum Kriterienkatalog</h2>
+<p>Die Anker werden pro Fach zusätzlich in einzelne <strong>Tätigkeiten</strong> aufgebrochen, jede mit einem eigenen Niveau. Die KI erfasst dann zusätzlich, welche Tätigkeiten im Material vorkommen und wie zentral sie sind (Gewicht 1–3). Daraus ergibt sich ein Score als gewichteter Median über die erfassten Tätigkeiten.</p>
+<p>Das hat zwei Vorteile. Der Wert wird <strong>nachvollziehbar</strong>: Man sieht, welche Tätigkeiten ihn erzeugt haben. Und er wird <strong>korrigierbar</strong>, denn das Niveau einer Tätigkeit ist eine Angabe in einer Datei, keine Modellausgabe — ändert es sich, lässt sich der Score neu rechnen, ohne alle Materialien neu einzulesen. Langfristig sollen Lehrpersonen über diese Niveaus abstimmen können.</p>
+<p>Beides wird bei jedem Material gespeichert: die Tätigkeiten und die direkte Schätzung. <strong>Angezeigt wird zurzeit die direkte Schätzung.</strong> An den Belegen gemessen trifft sie das richtige Band nämlich etwas häufiger als der Katalog (7 von 8 gegenüber 6 von 8), und der Katalog liest systematisch ein paar Punkte zu tief. Dafür ist er deutlich stabiler: Zwei Durchläufe über dasselbe Material unterscheiden sich um durchschnittlich 1,5 statt 4,2 Punkte.</p>
+<p class="meta">Die Zahlen stehen auf einer dünnen Grundlage — ein Dutzend Belege pro Fach. Sobald der Katalog nachgezogen ist, lässt sich der angezeigte Score aus den gespeicherten Tätigkeiten neu rechnen, ohne ein einziges Material neu einzulesen. Fächer ohne Katalog werden ohnehin direkt geschätzt.</p>
 <h2>Mit KI hergeleitet</h2>
 <p>Skala, Kriterien und Vorgehen sind von Menschen festgelegt. <strong>Die Belege gesucht, gelesen und daraus die Fach-Anker formuliert hat eine KI</strong> (Claude von Anthropic, September 2026). Jeder Link wurde dabei abgerufen und auf seinen Inhalt geprüft.
-Bewertet werden die Materialien später ebenfalls von einer KI (Gemini Flash Lite), mit dem Prompt unten und den Anker-Zeilen des jeweiligen Fachs.
+Bewertet werden die Materialien später ebenfalls von einer KI (${MODELL_NAME}), mit dem Prompt unten und den Anker-Zeilen des jeweiligen Fachs.
 KI kann sich irren, einzelne Einstufungen können daneben liegen. Die Anker sind eine Orientierung, kein Messinstrument.
 Hinweise auf Fehler oder bessere Belege sind willkommen, z.B. als Issue auf <a href="https://github.com/marcchehab/atlas" rel="noopener">GitHub</a>.</p>
 <h2>Der Prompt</h2>
 <pre ${pre}>${esc(NIVEAU_PROMPT)}</pre>
+<p class="meta">Bei Fächern mit Kriterienkatalog kommt diese Aufgabe dazu; der Katalog selbst steht unten beim Fach.</p>
+<pre ${pre}>${esc(KRITERIEN_PROMPT)}</pre>
 <h2>Fach-Anker</h2>
 <p class="meta">Diese Zeilen kommen zusätzlich in den Prompt, wenn ein Material des Fachs bewertet wird. Unter jedem Fach: Belege, Kalibrierfälle, Methodik und Unsicherheiten.</p>
 ${faecher}`

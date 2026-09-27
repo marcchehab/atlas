@@ -7,11 +7,15 @@ import { esc } from './views.js'
 // konkretisieren Fach-Anker aus niveau/<disziplin-code>.md die Bänder. Die Anker wurden einmalig
 // mit KI aus öffentlichen Belegen hergeleitet (Prüfungen, Wettbewerbe, Lehrpläne, Uni-Übungen).
 
+// Die Bandnamen folgen den Fach-Ankern in niveau/<disziplin>.md. «Übergang» hiess das zweite Band
+// früher; der Name und die Beschreibung («nur an Beispielen nachvollzogen») zogen gymnasiale
+// Routine — umrechnen, Code nachvollziehen — fälschlich unter das Grundlagenfach. Das zweite Band
+// ist die Sek I an ihrem oberen Ende, nicht ein abgeschwächtes Gymnasium.
 export const NIVEAU_BAENDER: [number, string, string][] = [
   [1, 'Sek I', 'Phänomene und Begriffe beschreiben, Rezepte anwenden, kaum Voraussetzungen'],
-  [21, 'Übergang', 'Gymnasialstoff, aber nur an Beispielen nachvollzogen, ohne Verallgemeinerung oder Begründung'],
-  [41, 'Gymnasium GF', 'Kern des Grundlagenfachs: Konzepte allgemein erklärt, angewandt und begründet, Aufgaben verlangen Transfer'],
-  [61, 'Gymnasium vertieft', 'Schwerpunkt-/Ergänzungsfach, Olympiade, Maturaarbeit: Herleitungen, Formalisierung, offene Probleme'],
+  [21, 'Sek I erweitert', 'oberes Ende der Sek I und Progymnasium: erste Schritte in einem Gymnasialthema, spielerisch oder nach Vorlage'],
+  [41, 'Grundlagenfach', 'Kern des gymnasialen Grundlagenfachs, von der Routine bis zur begründeten Anwendung mit Transfer'],
+  [61, 'Schwerpunktfach', 'Schwerpunkt- und Ergänzungsfach, Olympiade, Maturaarbeit: Herleitungen, Formalisierung, offene Probleme'],
   [81, 'Hochschule', 'formale Theorie, setzt Maturitätswissen voraus'],
 ]
 export const niveauBandName = (n: number) => [...NIVEAU_BAENDER].reverse().find(([von]) => n >= von)![1]
@@ -21,7 +25,88 @@ export const NIVEAU_PROMPT = `niveau 1–100: Für welche Bildungsstufe ist der 
    Kriterien: vorausgesetztes Vorwissen, Abstraktion/Formalisierung, Tiefe (Phänomen → Modell → Herleitung), Anforderung der Aufgaben (Reproduktion / Anwendung / Transfer, Begründung, Beweis).
    Bänder (innerhalb eines Bands graduell abstufen):
 ${NIVEAU_BAENDER.map(([von, name, kurz], i) => `   ${von}–${(NIVEAU_BAENDER[i + 1]?.[0] ?? 101) - 1} ${name}: ${kurz}.`).join('\n')}
-   Massgebend ist, was das Material verlangt, nicht welches Thema es behandelt. Im Zweifel das tiefere Band.`
+   Massgebend ist, was das Material verlangt, nicht welches Thema es behandelt.
+   Stufe genau ab und nutze die ganze Breite eines Bands: z.B. 42 = Einstieg ins Grundlagenfach, 50 = typischer Grundlagenfach-Stoff, 58 = anspruchsvoller Grundlagenfach-Stoff an der Grenze zum Schwerpunktfach. Keine runden Standardwerte.`
+
+// ---- Kriterienkatalog -------------------------------------------------------------------------
+// Statt einer blossen Zahl erfasst die KI, welche Taetigkeiten aus einem geschlossenen Katalog im
+// Material vorkommen und wie zentral (Gewicht 1-3). Der Niveau-Score ist daraus der gewichtete
+// Median. Vorteil gegenueber der direkten Zahl: das Niveau einer Taetigkeit ist Daten, nicht
+// Modellausgabe — es laesst sich spaeter per Voting korrigieren und neu rechnen, ohne zu crawlen.
+// Gemessen (GLM 5.3 Flash, Belege der Anker): Band exakt 78 % statt 73 %, Streuung zwischen zwei
+// Laeufen 1.5 statt 4.2 Punkte. Feuert kein Kriterium, faellt der Crawler auf die Zahl zurueck.
+
+export interface Kriterium {
+  id: string // fix; daran haengen spaeter die Stimmen
+  niveau: number // 1-100, Startwert aus den Ankern
+  text: string
+  gruppe: string
+}
+
+const kriterienCache = new Map<string, Kriterium[] | null>()
+
+// niveau/kriterien-<code>.md: Zeilen «- `id` | niveau | Taetigkeit», ##-Ueberschriften als Gruppe.
+// Fehlt die Datei, hat die Disziplin keinen Katalog und wird nur mit der direkten Zahl bewertet.
+export function fachKriterien(disziplinCode: string): Kriterium[] | null {
+  if (kriterienCache.has(disziplinCode)) return kriterienCache.get(disziplinCode)!
+  let md: string
+  try { md = fs.readFileSync(path.join(ANKER_DIR, `kriterien-${disziplinCode}.md`), 'utf8') } catch { kriterienCache.set(disziplinCode, null); return null }
+  const ks: Kriterium[] = []
+  let gruppe = ''
+  for (const z of md.split('\n')) {
+    if (z.startsWith('## ')) gruppe = z.slice(3).trim()
+    const m = z.match(/^- `([a-z0-9-]+)` \| (\d+) \| (.+)$/)
+    if (m) ks.push({ id: m[1], niveau: Math.max(1, Math.min(100, +m[2])), text: m[3].trim(), gruppe })
+  }
+  const res = ks.length ? ks : null
+  kriterienCache.set(disziplinCode, res)
+  return res
+}
+
+export interface KriteriumTreffer { id: string; gewicht: number }
+
+// Gewichteter Median: Kriterien nach Niveau sortieren, Gewichte aufsummieren, den Wert nehmen, bei
+// dem die halbe Gewichtssumme erreicht ist. Der Median statt des Mittels, weil ein Material sein
+// Niveau von seinem Schwerpunkt bekommen soll und nicht von Randthemen verwaessert werden darf;
+// eine blosse Summe waere falsch, sie waechst mit der Materiallaenge.
+export function berechneNiveau(treffer: KriteriumTreffer[], katalog: Kriterium[]): number | null {
+  const nach = new Map(katalog.map((k) => [k.id, k.niveau]))
+  const paare = treffer
+    .filter((t) => nach.has(t.id) && t.gewicht > 0)
+    .map((t) => ({ niveau: nach.get(t.id)!, gewicht: Math.min(3, Math.max(1, Math.round(t.gewicht))) }))
+    .sort((a, b) => a.niveau - b.niveau)
+  if (!paare.length) return null
+  const gesamt = paare.reduce((s, p) => s + p.gewicht, 0)
+  let kum = 0
+  for (const p of paare) { kum += p.gewicht; if (kum >= gesamt / 2) return p.niveau }
+  return paare[paare.length - 1].niveau
+}
+
+// Woher der angezeigte Niveau-Score kommt. Beide Werte werden immer gespeichert (Material.niveau
+// und Material.niveauKi), das hier entscheidet nur, welcher angezeigt wird.
+//
+// Vorerst 'ki': Auf den Anker-Belegen trifft die direkte Schaetzung das Band in 7 von 8 Faellen,
+// der Katalog in 6 von 8, und der Katalog liest systematisch ein paar Punkte zu tief (im Band
+// 81-100 deutlich). Dafuer ist er ueber zwei Laeufe viel stabiler (1.5 statt 4.2 Punkte Abstand)
+// und nachvollziehbar. Sobald der Katalog nachgezogen ist, hier auf 'kriterien' stellen und
+// `npx tsx scripts/niveau-neu-rechnen.ts` laufen lassen — ohne neuen Crawl.
+export const NIVEAU_QUELLE: 'ki' | 'kriterien' = (process.env.NIVEAU_QUELLE as 'ki' | 'kriterien') ?? 'ki'
+
+// Der angezeigte Score: je nach Schalter aus den Kriterien oder direkt von der KI. Feuert kein
+// Kriterium (Material ausserhalb des Katalogs, z.B. Mathematik-Stoff auf einer Informatik-Quelle),
+// gilt immer die Zahl.
+export function niveauScore(treffer: KriteriumTreffer[], katalog: Kriterium[], niveauKi: number): number {
+  if (NIVEAU_QUELLE !== 'kriterien') return niveauKi
+  return berechneNiveau(treffer, katalog) ?? niveauKi
+}
+
+// Prompt-Teil fuer die Kriterien-Erfassung; der Katalog selbst wird in ai.ts angehaengt.
+export const KRITERIEN_PROMPT = `kriterien: Welche Taetigkeiten aus dem Katalog unten kommen im Material vor? Gib nur die zutreffenden ids zurueck, je mit einem Gewicht:
+   3 = zentral, das Material dreht sich darum
+   2 = deutlich vorhanden, ein eigener Abschnitt oder mehrere Aufgaben
+   1 = am Rande erwaehnt oder nur ein kurzer Nebenaspekt
+   Massgebend ist, was das Material die Lernenden tun laesst oder vormacht, nicht welches Thema es nennt: ein Text ueber Sortierverfahren ohne jede Analyse erfuellt «Verfahren vergleichen» nicht. Unterscheide die Anforderung — Code nur nachvollziehen ist etwas anderes als Code selbst entwerfen.
+   Nur bewerten, was im Text selbst steht, nicht was verlinkt oder angekuendigt wird. Lieber wenige treffende ids als viele vage; typisch sind 2-6. Passt nichts, gib eine leere Liste zurueck.`
 
 export interface FachAnker {
   anker: string // Prompt-Text: eine Zeile pro Anker, «von–bis Band: …»

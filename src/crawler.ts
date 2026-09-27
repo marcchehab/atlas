@@ -5,7 +5,7 @@ import path from 'node:path'
 import { prisma } from './db.js'
 import { extract, stripTags } from './extract.js'
 import { klassifiziere, ZuordnungsOption, verbrauchText, guthaben } from './ai.js'
-import { fachAnker } from './niveau.js'
+import { fachAnker, fachKriterien, niveauScore, Kriterium } from './niveau.js'
 import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
 import { syncEduskriptVerzeichnis } from './verzeichnis.js'
@@ -32,6 +32,7 @@ interface KlassifikationsKontext {
   optionen: ZuordnungsOption[]
   tagNamen: string[]
   niveauAnker: string
+  katalog: Kriterium[]
   teilgebiete: Awaited<ReturnType<typeof ladeKontext>>['teilgebiete']
 }
 
@@ -58,7 +59,9 @@ async function ladeKontext(disziplinCode?: string | null) {
     .map(([code, name]) => { const a = fachAnker(code); return a ? `   ${name}:\n${a.anker.split('\n').map((z) => `   ${z}`).join('\n')}` : '' })
     .filter(Boolean)
     .join('\n')
-  return { optionen, tagNamen: tags.map((t) => t.name), niveauAnker, teilgebiete }
+  // Kriterienkataloge der Disziplinen im Raster; Disziplinen ohne Katalog bewertet nur die Zahl.
+  const katalog = disziplinen.flatMap(([code]) => fachKriterien(code) ?? [])
+  return { optionen, tagNamen: tags.map((t) => t.name), niveauAnker, katalog, teilgebiete }
 }
 
 // Ein Text (Seite oder Datei) → Klassifikation → Material mit Zuordnungen/Tags.
@@ -75,8 +78,11 @@ async function verarbeiteMaterial(
   const vorhanden = await prisma.material.findUnique({ where: { url } })
   if (vorhanden && vorhanden.contentHash === contentHash && !force) return 'unverändert'
 
-  const k = await klassifiziere(text, ctx.optionen, ctx.tagNamen, ctx.niveauAnker)
-  const niveau = Math.max(1, Math.min(100, Math.round(k.niveau)))
+  const k = await klassifiziere(text, ctx.optionen, ctx.tagNamen, ctx.niveauAnker, ctx.katalog)
+  const niveauKi = Math.max(1, Math.min(100, Math.round(k.niveau)))
+  // Angezeigter Score: siehe NIVEAU_QUELLE in niveau.ts. Die Kriterien werden in jedem Fall
+  // gespeichert, damit sich der Score spaeter ohne neuen Crawl daraus rechnen laesst.
+  const niveau = niveauScore(k.kriterien, ctx.katalog, niveauKi)
   // Eine einzelne Webseite, die >=5 ganze Teilgebiete abdecken soll, ist eine
   // Übersichts-/Portalseite — ablehnen. Ganze Skript-Repos dürfen breit sein.
   const zuBreit = istEinzelseite && k.zuordnungen.filter((c) => c.startsWith('T')).length >= 5
@@ -84,18 +90,19 @@ async function verarbeiteMaterial(
     // Abgelehntes behalten (Score <20 = öffentlich unsichtbar), damit Admins es einsehen können
     const abgelehnt = await prisma.material.upsert({
       where: { url },
-      create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), niveau, contentHash, format },
-      update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), niveau, contentHash, format },
+      create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), niveau, niveauKi, contentHash, format },
+      update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), niveau, niveauKi, contentHash, format },
     })
     await prisma.materialZuordnung.deleteMany({ where: { materialId: abgelehnt.id } })
     await prisma.materialTag.deleteMany({ where: { materialId: abgelehnt.id } })
+    await prisma.materialKriterium.deleteMany({ where: { materialId: abgelehnt.id } })
     return 'abgelehnt'
   }
 
   const material = await prisma.material.upsert({
     where: { url },
-    create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, niveau, contentHash, format },
-    update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, niveau, contentHash, format },
+    create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, niveau, niveauKi, contentHash, format },
+    update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, niveau, niveauKi, contentHash, format },
   })
 
   const zuordnungen: { teilgebietId: number; kompetenzId: number | null }[] = []
@@ -114,6 +121,11 @@ async function verarbeiteMaterial(
   }
   await prisma.materialZuordnung.deleteMany({ where: { materialId: material.id } })
   await prisma.materialZuordnung.createMany({ data: zuordnungen.map((z) => ({ materialId: material.id, ...z })) })
+
+  await prisma.materialKriterium.deleteMany({ where: { materialId: material.id } })
+  if (k.kriterien.length) {
+    await prisma.materialKriterium.createMany({ data: k.kriterien.map((t) => ({ materialId: material.id, kriteriumId: t.id, gewicht: t.gewicht })) })
+  }
 
   const tagIds = await prisma.tag.findMany({ where: { name: { in: k.tags } }, select: { id: true } })
   await prisma.materialTag.deleteMany({ where: { materialId: material.id } })
