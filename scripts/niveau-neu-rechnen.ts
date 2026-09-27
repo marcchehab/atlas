@@ -8,9 +8,16 @@
 // Ohne NIVEAU_QUELLE=kriterien zeigt das Skript den Unterschied trotzdem an, schreibt aber nicht:
 // so lässt sich vor dem Umschalten sehen, was passieren würde.
 import { prisma } from '../src/db.js'
-import { fachKriterien, berechneNiveau, NIVEAU_QUELLE } from '../src/niveau.js'
+import { fachKriterien, berechneNiveau, katalogMitStimmen, NIVEAU_QUELLE } from '../src/niveau.js'
 
 const schreiben = process.argv.includes('--schreiben')
+
+// Stimmen der Lehrpersonen einrechnen — der wirksame Wert einer Tätigkeit ist der Median aus
+// Startwert und Stimmen.
+const stimmen = await prisma.kriteriumStimme.findMany({ select: { kriteriumId: true, niveau: true } })
+const stimmenNach = new Map<string, number[]>()
+for (const st of stimmen) stimmenNach.set(st.kriteriumId, [...(stimmenNach.get(st.kriteriumId) ?? []), st.niveau])
+if (stimmen.length) console.log(`${stimmen.length} Stimmen zu ${stimmenNach.size} Tätigkeiten eingerechnet.\n`)
 
 const materialien = await prisma.material.findMany({
   where: { kriterien: { some: {} } },
@@ -24,7 +31,8 @@ const materialien = await prisma.material.findMany({
 let geaendert = 0
 const verschiebung: number[] = []
 for (const m of materialien) {
-  const katalog = fachKriterien(m.quelle.disziplin ?? '') ?? fachKriterien('informatik') ?? []
+  const roh = fachKriterien(m.quelle.disziplin ?? '') ?? fachKriterien('informatik') ?? []
+  const katalog = katalogMitStimmen(roh, stimmenNach)
   const neu = berechneNiveau(m.kriterien.map((k) => ({ id: k.kriteriumId, gewicht: k.gewicht })), katalog) ?? m.niveauKi
   if (neu == null || neu === m.niveau) continue
   geaendert++

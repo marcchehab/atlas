@@ -5,7 +5,7 @@ import path from 'node:path'
 import { prisma } from './db.js'
 import { extract, stripTags } from './extract.js'
 import { klassifiziere, ZuordnungsOption, verbrauchText, guthaben } from './ai.js'
-import { fachAnker, fachKriterien, niveauScore, Kriterium } from './niveau.js'
+import { fachAnker, fachKriterien, katalogMitStimmen, niveauScore, Kriterium } from './niveau.js'
 import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
 import { syncEduskriptVerzeichnis } from './verzeichnis.js'
@@ -60,7 +60,12 @@ async function ladeKontext(disziplinCode?: string | null) {
     .filter(Boolean)
     .join('\n')
   // Kriterienkataloge der Disziplinen im Raster; Disziplinen ohne Katalog bewertet nur die Zahl.
-  const katalog = disziplinen.flatMap(([code]) => fachKriterien(code) ?? [])
+  // Stimmen der Lehrpersonen ändern nur das Niveau einer Tätigkeit, nicht den Katalog selbst —
+  // in den Prompt geht ohnehin nur der Text.
+  const stimmen = await prisma.kriteriumStimme.findMany({ select: { kriteriumId: true, niveau: true } })
+  const stimmenNach = new Map<string, number[]>()
+  for (const st of stimmen) stimmenNach.set(st.kriteriumId, [...(stimmenNach.get(st.kriteriumId) ?? []), st.niveau])
+  const katalog = katalogMitStimmen(disziplinen.flatMap(([code]) => fachKriterien(code) ?? []), stimmenNach)
   return { optionen, tagNamen: tags.map((t) => t.name), niveauAnker, katalog, teilgebiete }
 }
 

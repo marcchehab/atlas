@@ -8,7 +8,7 @@ import * as auth from './auth.js'
 import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
 import { SCORE_PROMPT, SCORE_BAENDER, MODELL_NAME } from './ai.js'
-import { NIVEAU_PROMPT, NIVEAU_BAENDER, niveauBandName, fachAnker, fachKriterien, KRITERIEN_PROMPT, mdZuHtml } from './niveau.js'
+import { NIVEAU_PROMPT, NIVEAU_BAENDER, niveauBandName, fachAnker, fachKriterien, wirksamesNiveau, KRITERIEN_PROMPT, mdZuHtml } from './niveau.js'
 import { layout, esc, kürze, sidebar, materialKarte, rangGruppe, loginSeite, filterLeiste, tagVorschlagChip, quellenKey, MaterialKarte, TagVorschlag, FilterChip, BASE_URL, tgPfad, koPfad, grossErst } from './views.js'
 
 const app = express()
@@ -843,6 +843,12 @@ app.get('/niveau', async (req, res) => {
   const side = await baueSidebar(await aktivesFach(req), undefined, user)
   const disziplinen = await prisma.disziplin.findMany({ orderBy: { name: 'asc' } })
   const pre = 'style="white-space:pre-wrap;font-size:.8rem;background:var(--card);border:1px solid var(--rand);border-radius:10px;padding:.9rem 1.1rem"'
+  // Stimmen zu allen Kriterien einmal laden (wenige Zeilen: ~40 Tätigkeiten pro Fach)
+  const alleStimmen = await prisma.kriteriumStimme.findMany({ select: { kriteriumId: true, niveau: true, userId: true } })
+  const stimmenNach = new Map<string, number[]>()
+  for (const st of alleStimmen) stimmenNach.set(st.kriteriumId, [...(stimmenNach.get(st.kriteriumId) ?? []), st.niveau])
+  const meine = new Map(alleStimmen.filter((st) => st.userId === user?.id).map((st) => [st.kriteriumId, st.niveau]))
+
   const faecher = disziplinen.map((d) => {
     const a = fachAnker(d.code)
     if (!a) return `<h3>${esc(d.name)}</h3><p class="meta">Noch keine Fach-Anker. Bewertet wird nur mit der allgemeinen Skala.</p>`
@@ -851,9 +857,10 @@ app.get('/niveau', async (req, res) => {
     const katalog = ks
       ? `<details><summary>Kriterienkatalog (${ks.length} Tätigkeiten)</summary>
 <p class="meta">Erfasst werden die Tätigkeiten, die im Material vorkommen, je mit einem Gewicht von 1 bis 3; der Score daraus ist ihr gewichteter Median. Kommt keine davon vor, gilt die direkte Schätzung der KI.</p>
+<p class="meta">${user ? 'Stimmt eine Einstufung nicht? Setze dein eigenes Niveau — wirksam wird der Median aus Startwert und allen Stimmen.' : '<a href="/login">Anmelden</a>, um die Einstufungen mitzubestimmen.'}</p>
 <table><tr><th>Niveau</th><th>Tätigkeit</th></tr>
 ${gruppen.map((g) => `<tr><td colspan="2"><strong>${esc(g)}</strong></td></tr>
-${ks.filter((k) => k.gruppe === g).map((k) => `<tr><td>${k.niveau}</td><td>${esc(k.text)}</td></tr>`).join('\n')}`).join('\n')}
+${ks.filter((k) => k.gruppe === g).map((k) => kriteriumZeile(k, stimmenNach.get(k.id) ?? [], meine.get(k.id) ?? null, !!user)).join('\n')}`).join('\n')}
 </table></details>`
       : `<p class="meta">Noch kein Kriterienkatalog — bewertet wird mit der direkten Schätzung der KI.</p>`
     return `<h3 id="${esc(d.code)}">${esc(d.name)}</h3>
@@ -905,6 +912,50 @@ Hinweise auf Fehler oder bessere Belege sind willkommen, z.B. als Issue auf <a h
 <p class="meta">Diese Zeilen kommen zusätzlich in den Prompt, wenn ein Material des Fachs bewertet wird. Unter jedem Fach: Belege, Kalibrierfälle, Methodik und Unsicherheiten.</p>
 ${faecher}`
   res.send(layout('Wie wird der Niveau-Score bestimmt?', side, body, user, { pfad: '/niveau', beschreibung: 'So bestimmt Atlas den Niveau-Score von Unterrichtsmaterial: fachneutrale Skala, mit KI aus Maturprüfungen, Olympiaden und Lehrplänen hergeleitete Fach-Anker, alle Belege verlinkt.' }))
+})
+
+// Eine Zeile der Kriterien-Tabelle auf /niveau. Angemeldete Lehrpersonen können das Niveau einer
+// Tätigkeit selbst setzen; wirksam wird der Median aus Startwert und allen Stimmen.
+function kriteriumZeile(
+  k: { id: string; niveau: number; text: string },
+  stimmen: number[],
+  meine: number | null,
+  angemeldet: boolean
+): string {
+  const wirksam = stimmen.length ? wirksamesNiveau(k.niveau, stimmen) : k.niveau
+  const geaendert = wirksam !== k.niveau
+  const info = stimmen.length
+    ? `<span class="meta" title="Startwert ${k.niveau}, ${stimmen.length} ${stimmen.length === 1 ? 'Stimme' : 'Stimmen'}">${geaendert ? `<s>${k.niveau}</s> ` : ''}${stimmen.length} ×</span>`
+    : ''
+  const feld = angemeldet
+    ? `<form hx-post="/kriterium/${esc(k.id)}/stimme" hx-target="closest tr" hx-swap="outerHTML" style="display:inline-flex;gap:.3rem;align-items:center;margin:0">
+<input type="number" name="niveau" min="1" max="100" value="${meine ?? wirksam}" class="mini-feld" style="width:4.4rem" aria-label="Dein Niveau für: ${esc(k.text)}">
+<button type="submit" class="mini">${meine != null ? 'ändern' : 'stimmen'}</button>
+${meine != null ? `<button type="submit" name="loeschen" value="1" class="mini">zurückziehen</button>` : ''}
+</form>`
+    : ''
+  return `<tr id="krit-${esc(k.id)}"><td><strong>${wirksam}</strong> ${info}</td><td>${esc(k.text)}<br>${feld}</td></tr>`
+}
+
+// Stimme zu einer Tätigkeit abgeben, ändern oder zurückziehen (HTMX, ersetzt die Zeile)
+app.post('/kriterium/:id/stimme', async (req, res) => {
+  const user = await aktuellerUser(req)
+  if (!user) return res.status(401).send('')
+  const kriteriumId = req.params.id
+  // Nur ids, die in einem Katalog wirklich vorkommen
+  const disziplinen = await prisma.disziplin.findMany({ select: { code: true } })
+  const k = disziplinen.flatMap((d) => fachKriterien(d.code) ?? []).find((x) => x.id === kriteriumId)
+  if (!k) return res.status(404).send('')
+  const key = { userId_kriteriumId: { userId: user.id, kriteriumId } }
+  if (req.body?.loeschen) {
+    await prisma.kriteriumStimme.deleteMany({ where: { userId: user.id, kriteriumId } })
+  } else {
+    const niveau = Math.max(1, Math.min(100, Math.round(Number(req.body?.niveau))))
+    if (!Number.isFinite(niveau)) return res.status(400).send('')
+    await prisma.kriteriumStimme.upsert({ where: key, create: { userId: user.id, kriteriumId, niveau }, update: { niveau } })
+  }
+  const alle = await prisma.kriteriumStimme.findMany({ where: { kriteriumId }, select: { niveau: true, userId: true } })
+  res.send(kriteriumZeile(k, alle.map((x) => x.niveau), alle.find((x) => x.userId === user.id)?.niveau ?? null, true))
 })
 
 // Vote (HTMX): gleicher Pfeil nochmal = zurückziehen, anderer Pfeil = wechseln

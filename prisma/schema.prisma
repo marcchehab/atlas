@@ -17,6 +17,7 @@ model User {
   quellen   Quelle[]
   upvotes   Upvote[]
   tagVotes  TagVote[]
+  kriteriumStimmen KriteriumStimme[]
 }
 
 // Eine Quelle ist nur der Container, aus dem der Crawler Materialien zieht.
@@ -173,6 +174,19 @@ model MaterialTag {
 
   @@id([materialId, tagId])
   @@index([tagId])
+}
+
+// Stimme einer Lehrperson zum Niveau einer Tätigkeit aus dem Kriterienkatalog.
+// Nicht pro Material, sondern pro Tätigkeit: ~40 Einträge pro Fach brauchen wenige Stimmen,
+// 15'000 Materialien nie genug. Der wirksame Wert ist der Median aus Startwert und Stimmen.
+model KriteriumStimme {
+  user        User   @relation(fields: [userId], references: [id])
+  userId      Int
+  kriteriumId String // id aus niveau/kriterien-<disziplin>.md
+  niveau      Int // 1–100
+
+  @@id([userId, kriteriumId])
+  @@index([kriteriumId])
 }
 
 model Upvote {

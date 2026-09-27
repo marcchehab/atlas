@@ -315,7 +315,11 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
   form.suche input[type=search] { flex: 1; padding: .5rem .7rem; border: 1px solid var(--rand); border-radius: 8px; font: inherit; background: var(--card); color: var(--fg); }
   input, select, button { font: inherit; }
   button { background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: .5rem 1rem; cursor: pointer; }
-  input[type=url], input[type=email], input[type=text], input:not([type]), select { padding: .5rem .7rem; border: 1px solid var(--rand); border-radius: 8px; background: var(--card); color: var(--fg); }
+  input[type=url], input[type=email], input[type=text], input[type=number], input:not([type]), select { padding: .5rem .7rem; border: 1px solid var(--rand); border-radius: 8px; background: var(--card); color: var(--fg); }
+  /* kleine Aktionsknöpfe, z.B. beim Abstimmen über das Niveau einer Tätigkeit */
+  button.mini { background: var(--card); color: var(--fg); border: 1px solid var(--rand); border-radius: 7px; padding: .28rem .6rem; font-size: .78rem; }
+  button.mini:hover { background: var(--bg); }
+  input[type=number].mini-feld { padding: .28rem .4rem; font-size: .78rem; }
   .hinweis { background: var(--hinweis-bg); border: 1px solid var(--hinweis-rand); border-radius: 8px; padding: .5rem .8rem; font-size: .85rem; }
   table { border-collapse: collapse; width: 100%; background: var(--card); border-radius: 10px; }
   td, th { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--rand); font-size: .88rem; }

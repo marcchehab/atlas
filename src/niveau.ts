@@ -65,6 +65,24 @@ export function fachKriterien(disziplinCode: string): Kriterium[] | null {
 
 export interface KriteriumTreffer { id: string; gewicht: number }
 
+// Wirksames Niveau einer Taetigkeit: Median aus dem Startwert und den Stimmen der Lehrpersonen.
+// Der Startwert zaehlt als eine Stimme mit, damit eine einzelne abweichende Stimme den Wert nicht
+// kippt; ab zwei uebereinstimmenden Stimmen setzt sich die Community durch.
+export function wirksamesNiveau(startwert: number, stimmen: number[]): number {
+  const alle = [startwert, ...stimmen].sort((a, b) => a - b)
+  const m = Math.floor(alle.length / 2)
+  return alle.length % 2 ? alle[m] : Math.round((alle[m - 1] + alle[m]) / 2)
+}
+
+// Katalog mit eingerechneten Stimmen. `stimmenNach` bildet kriteriumId auf die abgegebenen
+// Niveau-Werte ab (aus der Tabelle KriteriumStimme).
+export function katalogMitStimmen(katalog: Kriterium[], stimmenNach: Map<string, number[]>): Kriterium[] {
+  return katalog.map((k) => {
+    const st = stimmenNach.get(k.id)
+    return st?.length ? { ...k, niveau: wirksamesNiveau(k.niveau, st) } : k
+  })
+}
+
 // Gewichteter Median: Kriterien nach Niveau sortieren, Gewichte aufsummieren, den Wert nehmen, bei
 // dem die halbe Gewichtssumme erreicht ist. Der Median statt des Mittels, weil ein Material sein
 // Niveau von seinem Schwerpunkt bekommen soll und nicht von Randthemen verwaessert werden darf;
