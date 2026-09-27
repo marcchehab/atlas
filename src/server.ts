@@ -390,6 +390,7 @@ app.get('/sitemap.xml', async (_req, res) => {
   })
   const pfade = ['/', '/quellen', '/sortierung', '/niveau']
   for (const f of disziplinen) {
+    if (fachKriterien(f.code)) pfade.push(`/niveau/${f.code}`)
     for (const fach of f.faecher) {
       pfade.push(`/fach/${fach.code}`)
       for (const lg of fach.lerngebiete)
@@ -843,78 +844,76 @@ ${SCORE_BAENDER.map(([von, name, kurz], i) => `<tr><td>${von}–${(SCORE_BAENDER
 })
 
 // Transparenz: Niveau-Skala, Methodik der Fach-Anker, Anker und Belege pro Disziplin
+// Stimmen zu allen Kriterien eines Fachs laden (wenige Zeilen: ~30 Tätigkeiten pro Fach)
+async function kriterienStand(ks: { id: string }[], userId?: number) {
+  const alle = await prisma.kriteriumStimme.findMany({
+    where: { kriteriumId: { in: ks.map((k) => k.id) } },
+    select: { kriteriumId: true, niveau: true, userId: true },
+  })
+  const stimmenNach = new Map<string, number[]>()
+  for (const st of alle) stimmenNach.set(st.kriteriumId, [...(stimmenNach.get(st.kriteriumId) ?? []), st.niveau])
+  const meine = new Map(alle.filter((st) => st.userId === userId).map((st) => [st.kriteriumId, st.niveau]))
+  return { stimmenNach, meine }
+}
+
+const PRE_STIL = 'style="white-space:pre-wrap;font-size:.8rem;background:var(--card);border:1px solid var(--rand);border-radius:10px;padding:.9rem 1.1rem"'
+
+// Übersicht: Skala, Bänder, Einstieg in die Fächer. Die Arbeit passiert auf den Fach-Seiten.
 app.get('/niveau', async (req, res) => {
   const user = await aktuellerUser(req)
   const side = await baueSidebar(await aktivesFach(req), undefined, user)
   const disziplinen = await prisma.disziplin.findMany({ orderBy: { name: 'asc' } })
-  const pre = 'style="white-space:pre-wrap;font-size:.8rem;background:var(--card);border:1px solid var(--rand);border-radius:10px;padding:.9rem 1.1rem"'
-  // Stimmen zu allen Kriterien einmal laden (wenige Zeilen: ~40 Tätigkeiten pro Fach)
-  const alleStimmen = await prisma.kriteriumStimme.findMany({ select: { kriteriumId: true, niveau: true, userId: true } })
-  const stimmenNach = new Map<string, number[]>()
-  for (const st of alleStimmen) stimmenNach.set(st.kriteriumId, [...(stimmenNach.get(st.kriteriumId) ?? []), st.niveau])
-  const meine = new Map(alleStimmen.filter((st) => st.userId === user?.id).map((st) => [st.kriteriumId, st.niveau]))
-
-  const faecher = disziplinen.map((d) => {
-    const a = fachAnker(d.code)
-    if (!a) return `<h3>${esc(d.name)}</h3><p class="meta">Noch keine Fach-Anker. Bewertet wird nur mit der allgemeinen Skala.</p>`
-    const ks = fachKriterien(d.code)
-    const katalog = ks
-      ? `<p class="meta">${user
-          ? 'Stimmt eine Einstufung nicht? Zieh den Regler — das ist deine Stimme, sie wird sofort gespeichert. Wirksam wird der Median aus Startwert und allen Stimmen; mit ↺ nimmst du deine zurück.'
-          : '<a href="/login">Anmelden</a>, um die Einstufungen mitzubestimmen.'}</p>
-${kriterienListe(d.code, ks, stimmenNach, meine, !!user)}
-<p class="meta">Der Regler zeigt den wirksamen Wert, bei eigener Stimme deinen. ○ ist der Startwert, ▏ der Median aller Stimmen, wenn er davon abweicht.</p>`
-      : `<p class="meta">Noch kein Kriterienkatalog — bewertet wird mit der direkten Schätzung der KI.</p>`
-    return `<h3 id="${esc(d.code)}">${esc(d.name)}</h3>
-<p class="meta">Diese ${ks ? ks.length : 0} Tätigkeiten sind die Grundlage; der Anker-Text unten wird daraus erzeugt.</p>
-${katalog}
-<details><summary>Anker-Text, wie er in den Prompt geht</summary><pre ${pre}>${esc(a.anker)}</pre></details>
-${a.abschnitte.map((t) => `<details><summary>${esc(t.titel)}</summary>\n${mdZuHtml(t.markdown)}\n</details>`).join('\n')}`
-  }).join('\n')
-  const body = `<h1>Wie wird der Niveau-Score bestimmt?</h1>
-<p>Neben dem <a href="/sortierung">Didaktik-Score</a>, der die didaktische Qualität bewertet, bekommt jedes Material einen <strong>Niveau-Score</strong> von 1 bis 100.
-Er beantwortet eine andere Frage: <em>Für welche Bildungsstufe ist der Inhalt fachlich gemacht?</em> Das ist kein Qualitätsurteil, sondern eine Frage der Passung.
-Ein gutes Einstiegsmaterial ist so wertvoll wie eine anspruchsvolle Vertiefung. Über den Niveau-Score findet man gezielt das eine oder das andere.</p>
-<p class="hinweis">⚠ Wir sind gerade dabei, das Niveau zu eruieren. Die Niveau-Werte sind noch nicht korrekt — bitte vorerst nicht darauf verlassen. Diese Seite dokumentiert den aktuellen Stand der Methode.</p>
-<h2>Die fünf Bänder</h2>
-<p>Die Skala ist an der Bildungsstufe verankert, nicht an einem Fach. Darum bedeutet 41–60 in jedem Fach dasselbe: passt für eine Gymnasialklasse im Grundlagenfach.</p>
+  const body = `<h1>Der Niveau-Score</h1>
+<p>Jedes Material bekommt neben dem <a href="/sortierung">Didaktik-Score</a> einen <strong>Niveau-Score</strong> von 1 bis 100. Er sagt, für welche Bildungsstufe der Inhalt fachlich gemacht ist — kein Qualitätsurteil, sondern eine Frage der Passung. Ein guter Einstieg ist so wertvoll wie eine anspruchsvolle Vertiefung.</p>
+<p class="hinweis">⚠ Die Niveau-Werte sind noch nicht korrekt — bitte vorerst nicht darauf verlassen.</p>
 <table>
-<tr><th>Niveau-Score</th><th>Band</th><th></th></tr>
+<tr><th>Score</th><th>Band</th><th></th></tr>
 ${NIVEAU_BAENDER.map(([von, name, kurz], i) => `<tr><td>${von}–${(NIVEAU_BAENDER[i + 1]?.[0] ?? 101) - 1}</td><td>${esc(name)}</td><td class="meta">${esc(kurz)}</td></tr>`).join('\n')}
 </table>
-<p>Bewertet wird nach vier Kriterien, die für jedes Fach gelten: vorausgesetztes Vorwissen, Abstraktion und Formalisierung, Tiefe (Phänomen → Modell → Herleitung) und Anforderung der Aufgaben (Reproduktion, Anwendung, Transfer/Begründung/Beweis).
-Massgebend ist, was ein Material verlangt, nicht sein Thema: Trigonometrie kann auf 30 oder auf 70 liegen.</p>
-<h2>Methodik: Fach-Anker aus Belegen</h2>
-<p>Eine allgemeine Skala allein ist zu ungenau. Pro Fach gibt es deshalb eine Liste von <strong>Tätigkeiten</strong> mit je einem eigenen Niveau — was in diesem Fach auf welcher Stufe tatsächlich getan wird.
-Die Anker sind nicht von Hand geschrieben, sondern aus <strong>öffentlichen Belegen hergeleitet, deren Stufe bekannt ist</strong>:</p>
+<p>Die Skala ist an der Bildungsstufe verankert, nicht am Fach: 41–60 heisst überall «passt ins Grundlagenfach». Was ein Material verlangt, zählt, nicht sein Thema — Trigonometrie kann 30 oder 70 sein.</p>
+<h2>Pro Fach eine Liste von Tätigkeiten</h2>
+<p>Was auf welcher Stufe steht, steht pro Fach in einer Liste von Tätigkeiten mit je einem Niveau. Die KI erfasst, welche davon ein Material verlangt; daraus wird der Score gerechnet. <strong>Lehrpersonen können diese Einstufungen korrigieren.</strong></p>
 <ul>
-<li><strong>Sek I:</strong> Lehrplan 21, Aufnahmeprüfungen ans Gymnasium, Sek-I-Lehrmittel</li>
-<li><strong>Gymnasium:</strong> schriftliche Maturprüfungen, Rahmenlehrplan 2024, Prüfungen und Lernziele von Gymnasiallehrpersonen</li>
-<li><strong>Vertieft:</strong> Maturprüfungen in Schwerpunkt- und Ergänzungsfächern, erste Runden der Wissenschafts-Olympiaden</li>
-<li><strong>Hochschule:</strong> Olympiade-Finalrunden, Übungen und Prüfungen aus dem ersten Studienjahr (ETH, EPFL)</li>
+${disziplinen.map((d) => {
+    const ks = fachKriterien(d.code)
+    return `<li><a href="/niveau/${esc(d.code)}">${esc(d.name)}</a>${ks ? ` <span class="meta">${ks.length} Tätigkeiten</span>` : ' <span class="meta">noch keine Liste</span>'}</li>`
+  }).join('\n')}
 </ul>
-<p>Wo es keine Maturprüfung gibt (z.B. Grundlagenfach Informatik), zeigt das, was Gymnasien tatsächlich unterrichten, wo der Kern liegt.
-Alle Belege sind unten verlinkt, samt den Lücken und Unsicherheiten pro Fach.</p>
-<p>Eine erste Fassung der Anker stufte gymnasiale Routine — Binärzahlen umrechnen, Code nachvollziehen, Caesar anwenden — zu tief ein, weil sie vom Anspruch von Prüfungen ausging statt von dem, was im Unterricht tatsächlich gemacht wird. Eine Gymnasiallehrperson hat die Informatik-Anker daraufhin korrigiert und gekürzt; Mathematik, Physik und Chemie sind fachlich noch nicht gegengelesen.</p>
+<details><summary>Der Bewertungs-Prompt</summary>
+<pre ${PRE_STIL}>${esc(NIVEAU_PROMPT)}</pre>
+<pre ${PRE_STIL}>${esc(KRITERIEN_PROMPT)}</pre>
+<p class="meta">Bewertet wird mit ${MODELL_NAME}. Die Tätigkeiten und ihre Einstufung hat eine KI aus öffentlichen Belegen hergeleitet (Lehrpläne, Aufnahme- und Maturprüfungen, Olympiaden, Uni-Übungen); die Belege stehen auf den Fach-Seiten. Fehler bitte als Issue auf <a href="https://github.com/marcchehab/atlas" rel="noopener">GitHub</a>.</p>
+</details>`
+  res.send(layout('Der Niveau-Score', side, body, user, { pfad: '/niveau', beschreibung: 'Der Niveau-Score von Atlas: eine Skala von 1 bis 100 für die Bildungsstufe, für die ein Unterrichtsmaterial fachlich gemacht ist.' }))
+})
 
-<h2>Tätigkeiten statt einer Zahl</h2>
-<p>Die KI schätzt nicht nur eine Zahl. Sie erfasst zusätzlich, welche dieser Tätigkeiten im Material vorkommen und wie zentral sie sind (Gewicht 1–3). Daraus ergibt sich ein Score als gewichteter Median über die erfassten Tätigkeiten. Der Anker-Text, der in den Bewertungs-Prompt geht, wird ebenfalls aus dieser Liste erzeugt — es gibt also nur eine Quelle, die gepflegt wird.</p>
-<p>Das hat zwei Vorteile. Der Wert wird <strong>nachvollziehbar</strong>: Man sieht, welche Tätigkeiten ihn erzeugt haben. Und er wird <strong>korrigierbar</strong>, denn das Niveau einer Tätigkeit ist eine Angabe in einer Datei, keine Modellausgabe — ändert es sich, lässt sich der Score neu rechnen, ohne alle Materialien neu einzulesen. Langfristig sollen Lehrpersonen über diese Niveaus abstimmen können.</p>
-<p>Beides wird bei jedem Material gespeichert: die Tätigkeiten und die direkte Schätzung. <strong>Angezeigt wird zurzeit die direkte Schätzung.</strong> An den Belegen gemessen trifft sie das richtige Band nämlich etwas häufiger als der Katalog (7 von 8 gegenüber 6 von 8), und der Katalog liest systematisch ein paar Punkte zu tief. Dafür ist er deutlich stabiler: Zwei Durchläufe über dasselbe Material unterscheiden sich um durchschnittlich 1,5 statt 4,2 Punkte.</p>
-<p class="meta">Die Zahlen stehen auf einer dünnen Grundlage — ein Dutzend Belege pro Fach. Sobald der Katalog nachgezogen ist, lässt sich der angezeigte Score aus den gespeicherten Tätigkeiten neu rechnen, ohne ein einziges Material neu einzulesen. Fächer ohne Katalog werden ohnehin direkt geschätzt.</p>
-<h2>Mit KI hergeleitet</h2>
-<p>Skala, Kriterien und Vorgehen sind von Menschen festgelegt. <strong>Die Belege gesucht, gelesen und daraus die Fach-Anker formuliert hat eine KI</strong> (Claude von Anthropic, September 2026). Jeder Link wurde dabei abgerufen und auf seinen Inhalt geprüft.
-Bewertet werden die Materialien später ebenfalls von einer KI (${MODELL_NAME}), mit dem Prompt unten und den Anker-Zeilen des jeweiligen Fachs.
-KI kann sich irren, einzelne Einstufungen können daneben liegen. Die Anker sind eine Orientierung, kein Messinstrument.
-Hinweise auf Fehler oder bessere Belege sind willkommen, z.B. als Issue auf <a href="https://github.com/marcchehab/atlas" rel="noopener">GitHub</a>.</p>
-<h2>Der Prompt</h2>
-<pre ${pre}>${esc(NIVEAU_PROMPT)}</pre>
-<p class="meta">Bei Fächern mit Kriterienkatalog kommt diese Aufgabe dazu; der Katalog selbst steht unten beim Fach.</p>
-<pre ${pre}>${esc(KRITERIEN_PROMPT)}</pre>
-<h2>Fach-Anker</h2>
-<p class="meta">Diese Zeilen kommen zusätzlich in den Prompt, wenn ein Material des Fachs bewertet wird. Unter jedem Fach: Belege, Kalibrierfälle, Methodik und Unsicherheiten.</p>
-${faecher}`
-  res.send(layout('Wie wird der Niveau-Score bestimmt?', side, body, user, { pfad: '/niveau', beschreibung: 'So bestimmt Atlas den Niveau-Score von Unterrichtsmaterial: fachneutrale Skala, mit KI aus Maturprüfungen, Olympiaden und Lehrplänen hergeleitete Fach-Anker, alle Belege verlinkt.' }))
+// Fach-Seite: kurze Erklärung, dann direkt die Abstimmung über die Tätigkeiten.
+app.get('/niveau/:code', async (req, res) => {
+  const user = await aktuellerUser(req)
+  const side = await baueSidebar(await aktivesFach(req), undefined, user)
+  const d = await prisma.disziplin.findUnique({ where: { code: req.params.code } })
+  if (!d) return res.status(404).send(layout('Nicht gefunden', side, '<h1>Nicht gefunden</h1>', user, { pfad: '/niveau' }))
+  const a = fachAnker(d.code)
+  const ks = fachKriterien(d.code)
+  if (!ks || !a) {
+    return res.send(layout(`Niveau-Score ${d.name}`, side,
+      `<h1>Niveau-Score ${esc(d.name)}</h1><p>Für dieses Fach gibt es noch keine Liste von Tätigkeiten. Bewertet wird nur mit der allgemeinen Skala.</p><p><a href="/niveau">Zurück zur Übersicht</a></p>`,
+      user, { pfad: '/niveau' }))
+  }
+  const { stimmenNach, meine } = await kriterienStand(ks, user?.id)
+  const body = `<h1>Niveau-Score ${esc(d.name)}</h1>
+<p>Diese ${ks.length} Tätigkeiten sind die Grundlage. Die KI erfasst pro Material, welche davon vorkommen und wie zentral; daraus wird der Score gerechnet.</p>
+<p class="hinweis">⚠ Die Niveau-Werte sind noch nicht korrekt — bitte vorerst nicht darauf verlassen.</p>
+<p>${user
+    ? '<strong>Stimmt eine Einstufung nicht?</strong> Zieh den Regler — das ist deine Stimme, sie wird sofort gespeichert. Wirksam wird der Median aus Startwert und allen Stimmen; mit ↺ nimmst du deine zurück.'
+    : '<a href="/login">Anmelden</a>, um die Einstufungen mitzubestimmen.'}</p>
+${kriterienListe(d.code, ks, stimmenNach, meine, !!user)}
+<p class="meta">Der Regler zeigt den wirksamen Wert, bei eigener Stimme deinen. ○ ist der Startwert, ▏ der Median aller Stimmen, wenn er davon abweicht.</p>
+<details><summary>Anker-Text, wie er in den Prompt geht</summary><pre ${PRE_STIL}>${esc(a.anker)}</pre>
+<p class="meta">Wird aus der Liste oben erzeugt, eine Zeile pro Band.</p></details>
+${a.abschnitte.map((t) => `<details><summary>${esc(t.titel)}</summary>\n${mdZuHtml(t.markdown)}\n</details>`).join('\n')}
+<p class="meta"><a href="/niveau">Alle Fächer und die Skala</a></p>`
+  res.send(layout(`Niveau-Score ${d.name}`, side, body, user, { pfad: '/niveau', beschreibung: `Die Tätigkeiten, aus denen Atlas den Niveau-Score für ${d.name} bestimmt — mit den Belegen und der Möglichkeit, die Einstufungen zu korrigieren.` }))
 })
 
 // Kriterien-Abstimmung auf /niveau: alle Tätigkeiten eines Fachs als gleichlange Regler auf der
