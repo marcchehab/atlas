@@ -140,7 +140,17 @@ ${katalog.map((k) => `   ${k.id}: ${k.text}`).join('\n')}` : ''}`
     aiVerbrauch.kostenUsd += u?.cost ?? 0
     const inhalt = data.choices?.[0]?.message?.content
     if (!inhalt) throw new HttpFehler(502, 'leere Antwort vom Anbieter') // → Retry, landet meist bei einem anderen Anbieter
-    const k = JSON.parse(inhalt) as Klassifikation
+    // Manche Anbieter rahmen das JSON in ```json … ``` oder stellen Text voran
+    const roh = inhalt.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+    const start = roh.indexOf('{')
+    if (start < 0) throw new HttpFehler(502, 'Antwort ohne JSON')
+    const k = JSON.parse(roh.slice(start)) as Klassifikation
+    // Gelegentlich liefert ein Anbieter unvollständiges JSON (einzelne Felder fehlen, oder die
+    // Antwort kommt mit Markdown-Rahmen). Fehlende Listen auffüllen, statt später beim .filter()
+    // mitten in der Verarbeitung abzustürzen und die ganze Seite zu verlieren.
+    k.zuordnungen ??= []
+    k.tags ??= []
+    k.neueTagVorschlaege ??= []
     // Kriterien säubern: nur Katalog-ids, Gewicht 1–3, jede id höchstens einmal
     const erlaubt = new Set(katalog.map((x) => x.id))
     const einmalig = new Map<string, number>()
