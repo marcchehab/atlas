@@ -329,6 +329,11 @@ app.get('/', async (req, res) => {
     prisma.quelle.count({ where: { todesCounter: { lt: 3 }, materialien: { some: { qualityScore: { gte: 20 }, versteckt: false, fehlCounter: { lt: 3 } } } } }),
     prisma.disziplin.findMany({ orderBy: { name: 'asc' }, include: { faecher: { orderBy: { id: 'asc' }, include: { lerngebiete: { orderBy: { nummer: 'asc' }, include: { teilgebiete: { orderBy: { code: 'asc' } } } } } } } }),
   ])
+  // Chemie ist zuletzt dazugekommen und am dünnsten bestückt — darum ans Ende der Karten,
+  // sonst stünde es alphabetisch zuoberst.
+  const ZULETZT = ['chemie']
+  disziplinen.sort((a, b) => (ZULETZT.indexOf(a.code) - ZULETZT.indexOf(b.code)) || a.name.localeCompare(b.name, 'de'))
+
   const body = `<h1>Unterrichtsmaterial für Schweizer Gymnasien</h1>
 <p>Atlas sammelt frei zugängliches Unterrichtsmaterial von Lehrpersonen für Maturitätsschulen und ordnet es den Lernzielen des <a href="https://edudoc.ch/record/232281/files/Rahmenlehrplan-maturitatsschulen.pdf" rel="noopener">Rahmenlehrplans Maturitätsschulen (EDK 2024)</a> zu — mit Kurzzusammenfassung, Link zur Originalquelle und Bewertungen aus der Community.</p>
 <p>Atlas ist im Aufbau: Als Pilot deckt es die Grundlagenfächer Informatik, Physik, Mathematik und Chemie ab — weitere Fächer folgen.</p>
