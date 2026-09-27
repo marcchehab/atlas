@@ -1,11 +1,7 @@
 # Niveau-Anker Mathematik
 
-## Anker (Prompt-Text)
-1–20 Sek I: Bruchrechnen, Prozent und Dreisatz, Terme vereinfachen, lineare Gleichungen lösen, Flächen und Volumen von Prisma und Pyramide, Konstruktionen mit Zirkel.
-21–40 Sek I erweitert / Progymnasium: Pythagoras, Potenzen und Wurzeln, lineare Funktionen, erste quadratische Gleichungen; Trigonometrie im rechtwinkligen Dreieck als Rezept (sin/cos/tan mit gegebenen Zahlen, Sachaufgabe in 2–3 Schritten).
-41–60 Grundlagenfach: Analysis wie in der Matur (Ableitung, Kurvendiskussion, Integral, Extremwertaufgabe), Trigonometrie begründet (Einheitskreis, Sinus-/Kosinussatz hergeleitet, trigonometrische Funktionen ableiten), Exponential- und Logarithmusfunktionen, Vektorgeometrie mit Ebenen, Stochastik (Binomialverteilung, Erwartungswert), Folgen und Reihen. Routine (Standardverfahren durchrechnen) eher 42–48, Herleitungen und mehrteilige Transferaufgaben eher 52–60.
-61–80 Schwerpunkt-/Ergänzungsfach: Differentialgleichungen herleiten und lösen, komplexe Zahlen in Polarform, Additionstheoreme beweisen, Eigenwerte affiner Abbildungen, Matrizen; elementare, aber echte Beweise (Kreisgeometrie, Zahlentheorie, Kombinatorik), Olympiade Vor- und Zweitrunde, Maturaarbeit.
-81–100 Hochschule: Axiomatischer Aufbau, Grenzwerte mit ε-Argumenten, Sätze über Vektorräume und lineare Abbildungen beweisen, Potenzreihen, mehrdimensionale Analysis; Olympiade-Finalrunde. Ingenieur-Grundvorlesungen eher 80–88, Mathematikstudium 90+.
+Die Fach-Anker für den Bewertungs-Prompt stehen nicht mehr hier: Sie werden aus
+`kriterien-mathematik.md` erzeugt, damit Items und Anker nicht auseinanderlaufen.
 
 ## Belege
 

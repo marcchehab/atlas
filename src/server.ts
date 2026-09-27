@@ -853,19 +853,17 @@ app.get('/niveau', async (req, res) => {
     const a = fachAnker(d.code)
     if (!a) return `<h3>${esc(d.name)}</h3><p class="meta">Noch keine Fach-Anker. Bewertet wird nur mit der allgemeinen Skala.</p>`
     const ks = fachKriterien(d.code)
-    const gruppen = [...new Map((ks ?? []).map((k) => [k.gruppe, true])).keys()]
     const katalog = ks
-      ? `<details><summary>Kriterienkatalog (${ks.length} Tätigkeiten)</summary>
-<p class="meta">Erfasst werden die Tätigkeiten, die im Material vorkommen, je mit einem Gewicht von 1 bis 3; der Score daraus ist ihr gewichteter Median. Kommt keine davon vor, gilt die direkte Schätzung der KI.</p>
-<p class="meta">${user ? 'Stimmt eine Einstufung nicht? Setze dein eigenes Niveau — wirksam wird der Median aus Startwert und allen Stimmen.' : '<a href="/login">Anmelden</a>, um die Einstufungen mitzubestimmen.'}</p>
-<table><tr><th>Niveau</th><th>Tätigkeit</th></tr>
-${gruppen.map((g) => `<tr><td colspan="2"><strong>${esc(g)}</strong></td></tr>
-${ks.filter((k) => k.gruppe === g).map((k) => kriteriumZeile(k, stimmenNach.get(k.id) ?? [], meine.get(k.id) ?? null, !!user)).join('\n')}`).join('\n')}
-</table></details>`
+      ? `<p class="meta">${user
+          ? 'Stimmt eine Einstufung nicht? Zieh den Regler — das ist deine Stimme, sie wird sofort gespeichert. Wirksam wird der Median aus Startwert und allen Stimmen; mit ↺ nimmst du deine zurück.'
+          : '<a href="/login">Anmelden</a>, um die Einstufungen mitzubestimmen.'}</p>
+${kriterienListe(d.code, ks, stimmenNach, meine, !!user)}
+<p class="meta">Der Regler zeigt den wirksamen Wert, bei eigener Stimme deinen. ○ ist der Startwert, ▏ der Median aller Stimmen, wenn er davon abweicht.</p>`
       : `<p class="meta">Noch kein Kriterienkatalog — bewertet wird mit der direkten Schätzung der KI.</p>`
     return `<h3 id="${esc(d.code)}">${esc(d.name)}</h3>
-<pre ${pre}>${esc(a.anker)}</pre>
+<p class="meta">Diese ${ks ? ks.length : 0} Tätigkeiten sind die Grundlage; der Anker-Text unten wird daraus erzeugt.</p>
 ${katalog}
+<details><summary>Anker-Text, wie er in den Prompt geht</summary><pre ${pre}>${esc(a.anker)}</pre></details>
 ${a.abschnitte.map((t) => `<details><summary>${esc(t.titel)}</summary>\n${mdZuHtml(t.markdown)}\n</details>`).join('\n')}`
   }).join('\n')
   const body = `<h1>Wie wird der Niveau-Score bestimmt?</h1>
@@ -882,7 +880,7 @@ ${NIVEAU_BAENDER.map(([von, name, kurz], i) => `<tr><td>${von}–${(NIVEAU_BAEND
 <p>Bewertet wird nach vier Kriterien, die für jedes Fach gelten: vorausgesetztes Vorwissen, Abstraktion und Formalisierung, Tiefe (Phänomen → Modell → Herleitung) und Anforderung der Aufgaben (Reproduktion, Anwendung, Transfer/Begründung/Beweis).
 Massgebend ist, was ein Material verlangt, nicht sein Thema: Trigonometrie kann auf 30 oder auf 70 liegen.</p>
 <h2>Methodik: Fach-Anker aus Belegen</h2>
-<p>Eine allgemeine Skala allein ist zu ungenau. Pro Fach gibt es deshalb <strong>Fach-Anker</strong>: eine Zeile pro Band mit Beispielen, was dort typischerweise verlangt wird.
+<p>Eine allgemeine Skala allein ist zu ungenau. Pro Fach gibt es deshalb eine Liste von <strong>Tätigkeiten</strong> mit je einem eigenen Niveau — was in diesem Fach auf welcher Stufe tatsächlich getan wird.
 Die Anker sind nicht von Hand geschrieben, sondern aus <strong>öffentlichen Belegen hergeleitet, deren Stufe bekannt ist</strong>:</p>
 <ul>
 <li><strong>Sek I:</strong> Lehrplan 21, Aufnahmeprüfungen ans Gymnasium, Sek-I-Lehrmittel</li>
@@ -894,8 +892,8 @@ Die Anker sind nicht von Hand geschrieben, sondern aus <strong>öffentlichen Bel
 Alle Belege sind unten verlinkt, samt den Lücken und Unsicherheiten pro Fach.</p>
 <p>Eine erste Fassung der Anker stufte gymnasiale Routine — Binärzahlen umrechnen, Code nachvollziehen, Caesar anwenden — zu tief ein, weil sie vom Anspruch von Prüfungen ausging statt von dem, was im Unterricht tatsächlich gemacht wird. Eine Gymnasiallehrperson hat die Informatik-Anker daraufhin korrigiert und gekürzt; Mathematik, Physik und Chemie sind fachlich noch nicht gegengelesen.</p>
 
-<h2>Vom Anker zum Kriterienkatalog</h2>
-<p>Die Anker werden pro Fach zusätzlich in einzelne <strong>Tätigkeiten</strong> aufgebrochen, jede mit einem eigenen Niveau. Die KI erfasst dann zusätzlich, welche Tätigkeiten im Material vorkommen und wie zentral sie sind (Gewicht 1–3). Daraus ergibt sich ein Score als gewichteter Median über die erfassten Tätigkeiten.</p>
+<h2>Tätigkeiten statt einer Zahl</h2>
+<p>Die KI schätzt nicht nur eine Zahl. Sie erfasst zusätzlich, welche dieser Tätigkeiten im Material vorkommen und wie zentral sie sind (Gewicht 1–3). Daraus ergibt sich ein Score als gewichteter Median über die erfassten Tätigkeiten. Der Anker-Text, der in den Bewertungs-Prompt geht, wird ebenfalls aus dieser Liste erzeugt — es gibt also nur eine Quelle, die gepflegt wird.</p>
 <p>Das hat zwei Vorteile. Der Wert wird <strong>nachvollziehbar</strong>: Man sieht, welche Tätigkeiten ihn erzeugt haben. Und er wird <strong>korrigierbar</strong>, denn das Niveau einer Tätigkeit ist eine Angabe in einer Datei, keine Modellausgabe — ändert es sich, lässt sich der Score neu rechnen, ohne alle Materialien neu einzulesen. Langfristig sollen Lehrpersonen über diese Niveaus abstimmen können.</p>
 <p>Beides wird bei jedem Material gespeichert: die Tätigkeiten und die direkte Schätzung. <strong>Angezeigt wird zurzeit die direkte Schätzung.</strong> An den Belegen gemessen trifft sie das richtige Band nämlich etwas häufiger als der Katalog (7 von 8 gegenüber 6 von 8), und der Katalog liest systematisch ein paar Punkte zu tief. Dafür ist er deutlich stabiler: Zwei Durchläufe über dasselbe Material unterscheiden sich um durchschnittlich 1,5 statt 4,2 Punkte.</p>
 <p class="meta">Die Zahlen stehen auf einer dünnen Grundlage — ein Dutzend Belege pro Fach. Sobald der Katalog nachgezogen ist, lässt sich der angezeigte Score aus den gespeicherten Tätigkeiten neu rechnen, ohne ein einziges Material neu einzulesen. Fächer ohne Katalog werden ohnehin direkt geschätzt.</p>
@@ -914,38 +912,75 @@ ${faecher}`
   res.send(layout('Wie wird der Niveau-Score bestimmt?', side, body, user, { pfad: '/niveau', beschreibung: 'So bestimmt Atlas den Niveau-Score von Unterrichtsmaterial: fachneutrale Skala, mit KI aus Maturprüfungen, Olympiaden und Lehrplänen hergeleitete Fach-Anker, alle Belege verlinkt.' }))
 })
 
-// Eine Zeile der Kriterien-Tabelle auf /niveau. Angemeldete Lehrpersonen können das Niveau einer
-// Tätigkeit selbst setzen; wirksam wird der Median aus Startwert und allen Stimmen.
-function kriteriumZeile(
-  k: { id: string; niveau: number; text: string },
-  stimmen: number[],
-  meine: number | null,
+// Kriterien-Abstimmung auf /niveau: alle Tätigkeiten eines Fachs als gleichlange Regler auf der
+// Skala 1–100, von schwer nach leicht. Dadurch sieht man auf einen Blick, wo die Bandgrenzen
+// liegen und welche Tätigkeiten zu nah beieinanderstehen. Ziehen ist die Stimme; gespeichert wird
+// beim Loslassen (change), nicht während des Ziehens.
+function kriterienListe(
+  disziplinCode: string,
+  ks: { id: string; niveau: number; text: string }[],
+  stimmenNach: Map<string, number[]>,
+  meine: Map<string, number>,
   angemeldet: boolean
 ): string {
-  const wirksam = stimmen.length ? wirksamesNiveau(k.niveau, stimmen) : k.niveau
-  const geaendert = wirksam !== k.niveau
-  const info = stimmen.length
-    ? `<span class="meta" title="Startwert ${k.niveau}, ${stimmen.length} ${stimmen.length === 1 ? 'Stimme' : 'Stimmen'}">${geaendert ? `<s>${k.niveau}</s> ` : ''}${stimmen.length} ×</span>`
-    : ''
-  const feld = angemeldet
-    ? `<form hx-post="/kriterium/${esc(k.id)}/stimme" hx-target="closest tr" hx-swap="outerHTML" style="display:inline-flex;gap:.3rem;align-items:center;margin:0">
-<input type="number" name="niveau" min="1" max="100" value="${meine ?? wirksam}" class="mini-feld" style="width:4.4rem" aria-label="Dein Niveau für: ${esc(k.text)}">
-<button type="submit" class="mini">${meine != null ? 'ändern' : 'stimmen'}</button>
-${meine != null ? `<button type="submit" name="loeschen" value="1" class="mini">zurückziehen</button>` : ''}
-</form>`
-    : ''
-  return `<tr id="krit-${esc(k.id)}"><td><strong>${wirksam}</strong> ${info}</td><td>${esc(k.text)}<br>${feld}</td></tr>`
+  const zeilen = ks
+    .map((k) => {
+      const stimmen = stimmenNach.get(k.id) ?? []
+      const wirksam = stimmen.length ? wirksamesNiveau(k.niveau, stimmen) : k.niveau
+      return { k, stimmen, wirksam, meine: meine.get(k.id) ?? null }
+    })
+    .sort((a, b) => b.wirksam - a.wirksam || a.k.text.localeCompare(b.k.text, 'de'))
+    .map(({ k, stimmen, wirksam, meine: meinWert }) => {
+      const reglerWert = meinWert ?? wirksam
+      // Marken nur zeigen, wenn sie etwas anderes sagen als der Regler selbst
+      const median = meinWert != null && wirksam !== meinWert
+        ? `<span class="krit-marke krit-median" style="left:${wirksam}%" title="Median aller Stimmen: ${wirksam}"></span>` : ''
+      const start = wirksam !== k.niveau
+        ? `<span class="krit-marke krit-start" style="left:${k.niveau}%" title="Startwert: ${k.niveau}"></span>` : ''
+      // Der Regler steht auf der eigenen Stimme; wirksam ist der Median. Weichen sie ab, muss das
+      // dastehen, sonst liest man die eigene Stimme als Ergebnis.
+      const zahl = [
+        meinWert != null && meinWert !== wirksam ? `wirksam ${wirksam}` : '',
+        stimmen.length ? `${stimmen.length} ${stimmen.length === 1 ? 'Stimme' : 'Stimmen'}` : '',
+      ].filter(Boolean).join(' · ')
+      const zahlHtml = zahl ? `<span class="krit-stimmen">${zahl}</span>` : ''
+      const reset = meinWert != null
+        ? `<button type="button" class="krit-reset" title="Deine Stimme zurückziehen" aria-label="Deine Stimme zurückziehen"
+hx-post="/kriterium/${esc(k.id)}/stimme" hx-vals='{"loeschen":"1"}' hx-target="#krit-liste-${esc(disziplinCode)}" hx-swap="outerHTML">↺</button>` : ''
+      return `<div class="krit-name" id="krit-${esc(k.id)}">${esc(k.text)}</div>
+<div class="krit-bahn">${start}${median}<input type="range" class="krit-slider" min="1" max="100" value="${reglerWert}"
+ ${angemeldet ? '' : 'disabled'} aria-label="Niveau für: ${esc(k.text)}"
+ oninput="this.closest('.krit').querySelector('[data-wert=\'${esc(k.id)}\']').textContent=this.value"
+ onkeydown="if(event.key==='Delete'||event.key==='Backspace'){const b=this.closest('.krit-bahn').parentElement.querySelector('.krit-reset'); if(b){b.click(); event.preventDefault()}}"
+ ${angemeldet ? `hx-post="/kriterium/${esc(k.id)}/stimme" hx-trigger="change" name="niveau" hx-target="#krit-liste-${esc(disziplinCode)}" hx-swap="outerHTML"` : ''}></div>
+<div class="krit-wert"><strong data-wert="${esc(k.id)}">${reglerWert}</strong>${reset}${zahlHtml}</div>`
+    })
+    .join('\n')
+
+  const kopf = NIVEAU_BAENDER.map(([von, name], i) => {
+    const bis = (NIVEAU_BAENDER[i + 1]?.[0] ?? 101) - 1
+    return `<span style="flex:${bis - von + 1};text-align:center">${esc(name)}</span>`
+  }).join('')
+  // Leere Zellen links und rechts, damit der Kopf in Spalte 2 steht, ohne die Auto-Platzierung
+  // der folgenden Zeilen zu verschieben
+  return `<div id="krit-liste-${esc(disziplinCode)}" class="krit">
+<div></div><div class="krit-kopf">${kopf}</div><div></div>
+${zeilen}
+</div>`
 }
 
-// Stimme zu einer Tätigkeit abgeben, ändern oder zurückziehen (HTMX, ersetzt die Zeile)
+// Stimme zu einer Tätigkeit abgeben, ändern oder zurückziehen (HTMX, ersetzt die ganze Liste,
+// damit sie neu sortiert und die Marken stimmen)
 app.post('/kriterium/:id/stimme', async (req, res) => {
   const user = await aktuellerUser(req)
   if (!user) return res.status(401).send('')
   const kriteriumId = req.params.id
-  // Nur ids, die in einem Katalog wirklich vorkommen
+  // Nur ids, die in einem Katalog wirklich vorkommen — und wir brauchen ohnehin die Disziplin
   const disziplinen = await prisma.disziplin.findMany({ select: { code: true } })
-  const k = disziplinen.flatMap((d) => fachKriterien(d.code) ?? []).find((x) => x.id === kriteriumId)
-  if (!k) return res.status(404).send('')
+  const treffer = disziplinen
+    .map((d) => ({ code: d.code, ks: fachKriterien(d.code) ?? [] }))
+    .find((x) => x.ks.some((k) => k.id === kriteriumId))
+  if (!treffer) return res.status(404).send('')
   const key = { userId_kriteriumId: { userId: user.id, kriteriumId } }
   if (req.body?.loeschen) {
     await prisma.kriteriumStimme.deleteMany({ where: { userId: user.id, kriteriumId } })
@@ -954,8 +989,14 @@ app.post('/kriterium/:id/stimme', async (req, res) => {
     if (!Number.isFinite(niveau)) return res.status(400).send('')
     await prisma.kriteriumStimme.upsert({ where: key, create: { userId: user.id, kriteriumId, niveau }, update: { niveau } })
   }
-  const alle = await prisma.kriteriumStimme.findMany({ where: { kriteriumId }, select: { niveau: true, userId: true } })
-  res.send(kriteriumZeile(k, alle.map((x) => x.niveau), alle.find((x) => x.userId === user.id)?.niveau ?? null, true))
+  const alle = await prisma.kriteriumStimme.findMany({
+    where: { kriteriumId: { in: treffer.ks.map((k) => k.id) } },
+    select: { kriteriumId: true, niveau: true, userId: true },
+  })
+  const stimmenNach = new Map<string, number[]>()
+  for (const st of alle) stimmenNach.set(st.kriteriumId, [...(stimmenNach.get(st.kriteriumId) ?? []), st.niveau])
+  const meine = new Map(alle.filter((st) => st.userId === user.id).map((st) => [st.kriteriumId, st.niveau]))
+  res.send(kriterienListe(treffer.code, treffer.ks, stimmenNach, meine, true))
 })
 
 // Vote (HTMX): gleicher Pfeil nochmal = zurückziehen, anderer Pfeil = wechseln

@@ -319,7 +319,43 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
   /* kleine Aktionsknöpfe, z.B. beim Abstimmen über das Niveau einer Tätigkeit */
   button.mini { background: var(--card); color: var(--fg); border: 1px solid var(--rand); border-radius: 7px; padding: .28rem .6rem; font-size: .78rem; }
   button.mini:hover { background: var(--bg); }
-  input[type=number].mini-feld { padding: .28rem .4rem; font-size: .78rem; }
+
+  /* Kriterien-Abstimmung: Liste mit gleichlangen Reglern auf einer gemeinsamen Skala 1–100.
+     Die Bandgrenzen liegen im Track, dadurch wird die Liste zum Lineal. */
+  .krit { display: grid; grid-template-columns: minmax(8rem, 15rem) 1fr 5.5rem; gap: .35rem .8rem; align-items: center; }
+  .krit-kopf { font-size: .68rem; opacity: .65; display: flex; }
+  .krit-name { font-size: .82rem; line-height: 1.25; }
+  .krit-wert { font-size: .82rem; display: flex; align-items: center; gap: .35rem; white-space: nowrap; }
+  .krit-wert strong { font-variant-numeric: tabular-nums; }
+  .krit-stimmen { display: block; font-size: .66rem; opacity: .6; }
+  .krit-bahn { position: relative; display: flex; align-items: center; height: 1.4rem; }
+  .krit-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 1.4rem; background: transparent; margin: 0; cursor: pointer; }
+  .krit-slider:disabled { cursor: default; opacity: .8; }
+  .krit-bahn-spur { height: .5rem; border-radius: 4px; background:
+    linear-gradient(90deg, var(--rand) 0 20%, transparent 20% 40%, var(--rand) 40% 60%, transparent 60% 80%, var(--rand) 80% 100%);
+    outline: 1px solid var(--rand); }
+  .krit-slider::-webkit-slider-runnable-track { height: .5rem; border-radius: 4px; background:
+    linear-gradient(90deg, var(--rand) 0 20%, transparent 20% 40%, var(--rand) 40% 60%, transparent 60% 80%, var(--rand) 80% 100%);
+    outline: 1px solid var(--rand); }
+  .krit-slider::-moz-range-track { height: .5rem; border-radius: 4px; background:
+    linear-gradient(90deg, var(--rand) 0 20%, transparent 20% 40%, var(--rand) 40% 60%, transparent 60% 80%, var(--rand) 80% 100%);
+    outline: 1px solid var(--rand); }
+  .krit-slider::-webkit-slider-thumb { -webkit-appearance: none; width: .95rem; height: .95rem; margin-top: -.23rem; border-radius: 50%; background: var(--primary); border: 2px solid var(--card); }
+  .krit-slider::-moz-range-thumb { width: .95rem; height: .95rem; border-radius: 50%; background: var(--primary); border: 2px solid var(--card); }
+  /* Median aller Stimmen und Startwert als Marken über der Bahn */
+  .krit-marke { position: absolute; top: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+  .krit-median { width: 2px; height: 1rem; background: var(--fg); opacity: .75; border-radius: 1px; }
+  .krit-start { width: .55rem; height: .55rem; border: 1.5px solid var(--fg); opacity: .45; border-radius: 50%; }
+  .krit-reset { background: none; border: none; color: var(--fg); opacity: .55; cursor: pointer; font-size: .95rem; padding: 0 .1rem; line-height: 1; }
+  .krit-reset:hover { opacity: 1; }
+  .krit-gespeichert { font-size: .66rem; opacity: 0; color: var(--primary); transition: opacity .25s; }
+  .krit-gespeichert.an { opacity: .85; }
+  @media (max-width: 620px) {
+    .krit { grid-template-columns: 1fr 4.5rem; }
+    .krit-name { grid-column: 1 / -1; margin-top: .4rem; }
+    .krit-kopf { grid-column: 1 / -1; }
+    .krit { grid-template-columns: 1fr 4.5rem; }
+  }
   .hinweis { background: var(--hinweis-bg); border: 1px solid var(--hinweis-rand); border-radius: 8px; padding: .5rem .8rem; font-size: .85rem; }
   table { border-collapse: collapse; width: 100%; background: var(--card); border-radius: 10px; }
   td, th { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--rand); font-size: .88rem; }

@@ -1,11 +1,7 @@
 # Niveau-Anker Physik
 
-## Anker (Prompt-Text)
-1–20 Sek I: Bewegungen im s-t-Diagramm darstellen, v = s/t umstellen, Einheiten umrechnen; Energieformen und Umwandlungsketten qualitativ benennen; Serien- und Parallelschaltung experimentell untersuchen (LP21 Natur und Technik).
-21–40 Sek I erweitert / Progymnasium: Eine bekannte Formel mit gegebenen Zahlen in einem Schritt anwenden (freier Fall, Bremsweg, E = m·g·h, Ohmsches Gesetz, Hebel, Dichte); Experimente nach Anleitung protokollieren, keine Vektoren und keine Herleitung.
-41–60 Grundlagenfach: Kinematik und Dynamik mit Beschleunigung, Kräfte an der schiefen Ebene zerlegen, schiefer Wurf, Impuls- und Energieerhaltung begründet anwenden, Wärmelehre (Mischtemperatur, Schmelzwärme), Gleichstromkreise analysieren, Optik mit Linsengleichung, Schwingungen, Grössenordnungen abschätzen und Resultate plausibilisieren. Routine (Formel einsetzen) eher 42–48, literale Herleitung und mehrteilige Kontextaufgaben eher 52–60.
-61–80 Schwerpunkt-/Ergänzungsfach: Mechanik mit Analysis (Trägheitsmoment per Integral, Kepler aus dem Gravitationsgesetz), Kreisprozesse im p-V-Diagramm, elektromagnetische Felder allgemein herleiten, spezielle Relativität, Quantenphysik, Fehlerrechnung; Olympiade 1. und 2. Runde.
-81–100 Hochschule: Bewegungsgleichungen als Differentialgleichung oder im Phasenraum, Lagrange-Formalismus, Zentralpotential, Streuquerschnitt, statistische Fehleranalyse; offene Modellbildung auf IPhO-Niveau, Grundvorlesungen ab dem 1. Studienjahr.
+Die Fach-Anker für den Bewertungs-Prompt stehen nicht mehr hier: Sie werden aus
+`kriterien-physik.md` erzeugt, damit Items und Anker nicht auseinanderlaufen.
 
 ## Belege
 

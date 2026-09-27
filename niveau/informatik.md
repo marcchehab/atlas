@@ -1,11 +1,7 @@
 # Niveau-Anker Informatik
 
-## Anker (Prompt-Text)
-1–20 Sek I: Scratch/Blockprogrammierung, Medienbildung (Internet, Daten, Sicherheit) nach LP21 MI.
-21–40 Sek I erweitert / Progymnasium: erste Textprogramme nach Vorlage (z.B. TigerJython, «Einfach Informatik 7–9»), Binärzahlen und Geheimschriften spielerisch entdecken.
-41–60 Grundlagenfach: Python von den ersten Schleifen bis zu eigenen Funktionen mit Listen; Programme lesen und erweitern, angeleitete Projekte (Spiel, Simulation); Zahlensysteme, Bildgrösse, Prüfziffern, Caesar/Vigenère, Sortieren und Suchen vergleichen, RSA mit kleinen Zahlen, SQL, Automaten. Routine (umrechnen, nachvollziehen) eher 42–48, Entwerfen und RSA/SQL eher 52–60.
-61–80 Schwerpunkt-/Ergänzungsfach: O-Notation, Rekursion, Graphalgorithmen, formale Sprachen, Berechenbarkeit, Olympiade 1. Runde.
-81–100 Hochschule: Korrektheits- und Laufzeitbeweise, NP-Vollständigkeit, Olympiade-Final, ETH-Informatik im 1. Jahr.
+Die Fach-Anker für den Bewertungs-Prompt stehen nicht mehr hier: Sie werden aus
+`kriterien-informatik.md` erzeugt, damit Items und Anker nicht auseinanderlaufen.
 
 ## Belege
 

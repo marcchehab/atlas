@@ -134,18 +134,33 @@ export interface FachAnker {
 const ANKER_DIR = path.join(process.cwd(), 'niveau')
 const cache = new Map<string, FachAnker | null>()
 
-// niveau/<code>.md: «## Anker (Prompt-Text)» liefert den Prompt-Text, alle weiteren ##-Abschnitte
-// erscheinen auf /niveau. Fehlt die Datei, ist die Disziplin «unkalibriert» (nur allgemeine Skala).
+// Der Anker-Text wird aus den Kriterien erzeugt: eine Zeile pro Band, die Tätigkeiten nach Niveau
+// sortiert. Damit gibt es nur eine Quelle — wer ein Item verschiebt oder umformuliert, ändert
+// zugleich den Prompt. Nur Disziplinen ohne Katalog fallen auf einen von Hand geschriebenen
+// «## Anker»-Abschnitt in niveau/<code>.md zurück.
+export function ankerAusKriterien(kriterien: Kriterium[]): string {
+  return NIVEAU_BAENDER.map(([von, name], i) => {
+    const bis = (NIVEAU_BAENDER[i + 1]?.[0] ?? 101) - 1
+    const drin = kriterien.filter((k) => k.niveau >= von && k.niveau <= bis).sort((a, b) => a.niveau - b.niveau)
+    return drin.length ? `${von}–${bis} ${name}: ${drin.map((k) => k.text).join('; ')}.` : ''
+  }).filter(Boolean).join('\n')
+}
+
+// niveau/<code>.md: alle ##-Abschnitte erscheinen auf /niveau (Belege, Kalibrierfälle, Methodik).
+// Der Prompt-Anker kommt aus niveau/kriterien-<code>.md; fehlt der Katalog, greift ein von Hand
+// geschriebener «## Anker»-Abschnitt. Fehlt beides, ist die Disziplin «unkalibriert».
 export function fachAnker(disziplinCode: string): FachAnker | null {
   if (cache.has(disziplinCode)) return cache.get(disziplinCode)!
-  let md: string
-  try { md = fs.readFileSync(path.join(ANKER_DIR, `${disziplinCode}.md`), 'utf8') } catch { cache.set(disziplinCode, null); return null }
+  let md = ''
+  try { md = fs.readFileSync(path.join(ANKER_DIR, `${disziplinCode}.md`), 'utf8') } catch { /* nur Katalog, keine Belege */ }
   const teile = md.split(/^## /m).slice(1).map((t) => {
     const nl = t.indexOf('\n')
     return { titel: t.slice(0, nl).trim(), markdown: t.slice(nl + 1).trim() }
   })
   const ankerTeil = teile.find((t) => t.titel.startsWith('Anker'))
-  const res = ankerTeil ? { anker: ankerTeil.markdown, abschnitte: teile.filter((t) => t !== ankerTeil) } : null
+  const ks = fachKriterien(disziplinCode)
+  const anker = ks ? ankerAusKriterien(ks) : ankerTeil?.markdown
+  const res = anker ? { anker, abschnitte: teile.filter((t) => t !== ankerTeil) } : null
   cache.set(disziplinCode, res)
   return res
 }

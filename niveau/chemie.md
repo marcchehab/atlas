@@ -1,11 +1,7 @@
 # Niveau-Anker Chemie
 
-## Anker (Prompt-Text)
-1–20 Sek I: Stoffeigenschaften messen (Siedetemperatur, Dichte, Löslichkeit) und ein Trennverfahren wählen, eine Reaktion als Wortschema und im Kugelmodell darstellen, Lösungen mit Indikator als sauer oder basisch einordnen, eine Neutralisation nach Anleitung durchführen (LP21 Natur und Technik).
-21–40 Sek I erweitert / Progymnasium: Atombau mit Schalenmodell, Valenzelektronen und PSE ablesen, Reaktionsgleichungen ausgleichen, Salzformeln aus Ionenladungen ableiten — Drill mit Sofortkontrolle, ohne Rechnung und ohne Begründung.
-41–60 Grundlagenfach: Stöchiometrie mit Molmasse, limitierendem Edukt, Ausbeute und Gasvolumen; Siedepunkt und Löslichkeit aus Bindungstyp und zwischenmolekularen Kräften erklären; Säure-Base nach Brønsted, pH starker Säuren, Neutralisation mit Überschuss, Lage des Gleichgewichts mit der pKs-Tabelle begründen; Massenwirkungsgesetz und Le Châtelier; Redox mit Oxidationszahlen; Grundzüge der organischen Chemie. Routine (ausgleichen, einsetzen, umrechnen) eher 42–48, Begründen und mehrstufige Aufgaben eher 52–60.
-61–80 Schwerpunkt-/Ergänzungsfach: pH schwacher Säuren, Puffer und Titrationskurven quantitativ, Löslichkeitsprodukt, Thermodynamik (ΔG = ΔH − TΔS, ΔG° = −RT ln K), Lewis-Formeln mit Formalladungen, Reaktionsmechanismen der organischen Chemie, Komplexchemie; Olympiade 1. und 2. Runde.
-81–100 Hochschule: Kinetik als Differentialgleichung (Folgereaktion, Quasistationarität), quantenmechanische Modelle (Teilchen im Kasten, Spektren), gekoppelte Mehrfachgleichgewichte, NMR-Strukturaufklärung, Latimer- und Frost-Diagramme; Olympiade-Final, IChO, 1. Studienjahr.
+Die Fach-Anker für den Bewertungs-Prompt stehen nicht mehr hier: Sie werden aus
+`kriterien-chemie.md` erzeugt, damit Items und Anker nicht auseinanderlaufen.
 
 ## Belege
 
