@@ -140,11 +140,11 @@ ${katalog.map((k) => `   ${k.id}: ${k.text}`).join('\n')}` : ''}`
     aiVerbrauch.kostenUsd += u?.cost ?? 0
     const inhalt = data.choices?.[0]?.message?.content
     if (!inhalt) throw new HttpFehler(502, 'leere Antwort vom Anbieter') // → Retry, landet meist bei einem anderen Anbieter
-    // Manche Anbieter rahmen das JSON in ```json … ``` oder stellen Text voran
-    const roh = inhalt.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
-    const start = roh.indexOf('{')
-    if (start < 0) throw new HttpFehler(502, 'Antwort ohne JSON')
-    const k = JSON.parse(roh.slice(start)) as Klassifikation
+    const json = ersteJsonObjekt(inhalt)
+    if (!json) { aiVerbrauch.kaputteAntworten++; throw new HttpFehler(502, 'Antwort ohne verwertbares JSON') }
+    let k: Klassifikation
+    try { k = JSON.parse(json) as Klassifikation }
+    catch (e) { aiVerbrauch.kaputteAntworten++; throw new HttpFehler(502, `JSON nicht lesbar: ${(e as Error).message.slice(0, 80)}`) }
     // Gelegentlich liefert ein Anbieter unvollständiges JSON (einzelne Felder fehlen, oder die
     // Antwort kommt mit Markdown-Rahmen). Fehlende Listen auffüllen, statt später beim .filter()
     // mitten in der Verarbeitung abzustürzen und die ganze Seite zu verlieren.
@@ -162,14 +162,36 @@ ${katalog.map((k) => `   ${k.id}: ${k.text}`).join('\n')}` : ''}`
   }))
 }
 
+// Trotz json_schema liefern manche Anbieter Markdown: ```json-Rahmen, ein «**qualityScore** …»
+// davor, oder Prosa hinter dem Objekt. Darum das erste vollständige, geklammerte JSON-Objekt
+// herausschneiden, statt ab der ersten Klammer bis zum Ende zu parsen — sonst scheitert es an
+// allem, was danach noch kommt. Anführungszeichen und Escapes werden dabei beachtet.
+export function ersteJsonObjekt(text: string): string | null {
+  const start = text.indexOf('{')
+  if (start < 0) return null
+  let tiefe = 0
+  let imText = false
+  let escaped = false
+  for (let i = start; i < text.length; i++) {
+    const c = text[i]
+    if (escaped) { escaped = false; continue }
+    if (c === '\\') { escaped = true; continue }
+    if (c === '"') { imText = !imText; continue }
+    if (imText) continue
+    if (c === '{') tiefe++
+    else if (c === '}' && --tiefe === 0) return text.slice(start, i + 1)
+  }
+  return null // Objekt unvollständig (abgeschnittene Antwort)
+}
+
 // Leeres OpenRouter-Guthaben (HTTP 402) — Crawler prüft das und hört auf, statt weiterzulaufen
 // und dabei nur Fehler zu produzieren (Hub-Seiten würden gelöscht, ohne dass Dateien nachkommen)
 export const guthaben = { leer: false }
 
 // Verbrauch über den ganzen Lauf — der Crawler loggt ihn am Ende
-export const aiVerbrauch = { aufrufe: 0, input: 0, gecacht: 0, output: 0, kostenUsd: 0 }
+export const aiVerbrauch = { aufrufe: 0, input: 0, gecacht: 0, output: 0, kostenUsd: 0, kaputteAntworten: 0 }
 export const verbrauchText = () =>
-  `AI: ${aiVerbrauch.aufrufe} Aufrufe, ${aiVerbrauch.input} Input-Tokens (davon ${aiVerbrauch.gecacht} aus Cache), ${aiVerbrauch.output} Output-Tokens, ${aiVerbrauch.kostenUsd.toFixed(2)} USD`
+  `AI: ${aiVerbrauch.aufrufe} Aufrufe, ${aiVerbrauch.input} Input-Tokens (davon ${aiVerbrauch.gecacht} aus Cache), ${aiVerbrauch.output} Output-Tokens, ${aiVerbrauch.kostenUsd.toFixed(2)} USD${aiVerbrauch.kaputteAntworten ? `, ${aiVerbrauch.kaputteAntworten} unlesbare Antworten` : ''}`
 
 // Globale Obergrenze gleichzeitiger AI-Aufrufe (Rate-Limits beim Anbieter), unabhängig davon,
 // wie viele Quellen parallel laufen

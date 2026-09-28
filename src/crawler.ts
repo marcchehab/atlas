@@ -373,6 +373,12 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   let besucht = 0
 
   const stat = { neu: 0, aktualisiert: 0, unverändert: 0, abgelehnt: 0, duplikat: 0, fehler: 0, hubs: 0 }
+  // Fehlerarten zählen: einzelne Meldungen brechen nach fünf ab, die Verteilung interessiert aber
+  const fehlerArten = new Map<string, number>()
+  const merkeFehler = (e: unknown) => {
+    const art = (e as Error).message.replace(/https?:\/\/\S+/g, 'URL').replace(/\d{2,}/g, 'N').slice(0, 60)
+    fehlerArten.set(art, (fehlerArten.get(art) ?? 0) + 1)
+  }
   let ohneDownload = 0 // via Sitemap-lastmod oder HTTP 304 übersprungen (zählen auch als unverändert)
   const gesehen = new Set<string>()
   const anhangCache = new Map<string, string | null>() // Anhang-URL → extrahierter Text (null = unbrauchbar)
@@ -388,10 +394,21 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
   let pauseMs = 400
   let rateLimits = 0
   let abgebrochen = false // Abbruch zählt wie gedeckelt: fehlende URLs nicht als tot werten
+  // Die Zusammenfassung kommt erst am Ende der Quelle, und Einzelfehler werden nach dem fünften
+  // nicht mehr geloggt. Eine grosse Quelle sah dadurch stundenlang aus wie ein Hänger. Darum alle
+  // zwei Minuten eine Standmeldung.
+  let letzteMeldung = Date.now()
+  const herzschlag = (url: string) => {
+    if (Date.now() - letzteMeldung < 120000) return
+    letzteMeldung = Date.now()
+    console.log(`  … ${quelle.url}: ${besucht} Seiten besucht, ${verarbeitet()} verarbeitet, ${stat.fehler} Fehler, ${queue.length} in der Warteschlange — zuletzt ${url.slice(0, 80)}`)
+  }
+
   while (queue.length && besucht < (maxSeiten === Infinity ? 10000 : 1000) && verarbeitet() < maxSeiten) {
     if (guthaben.leer) { abgebrochen = true; break }
     const url = queue.shift()!
     besucht++
+    herzschlag(url)
     try {
       // Bekanntes Material: Sitemap-lastmod unverändert → gar kein Download;
       // sonst konditionaler Request (If-None-Match/If-Modified-Since) → 304 spart den Body.
@@ -509,16 +526,21 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
       hashesLaufend.add(h)
       const job: Promise<void> = verarbeiteMaterial(quelle.id, effektiveUrl, text, h, ctx, force, true, format)
         .then(async (r) => { stat[r]++; await prisma.material.updateMany({ where: { url: effektiveUrl }, data: cacheDaten }) })
-        .catch((e) => { stat.fehler++; if (stat.fehler <= 5) console.error(`Crawl-Fehler ${effektiveUrl}: ${(e as Error).message}`) })
+        .catch((e) => { stat.fehler++; merkeFehler(e); if (stat.fehler <= 5) console.error(`Crawl-Fehler ${effektiveUrl}: ${(e as Error).message}`) })
         .finally(() => { laufend.delete(job); hashesLaufend.delete(h) })
       laufend.add(job)
       if (laufend.size >= AI_PRO_QUELLE) await Promise.race(laufend)
     } catch (e) {
       stat.fehler++
+      merkeFehler(e)
       if (stat.fehler <= 5) console.error(`Crawl-Fehler ${url}: ${(e as Error).message}`)
     }
   }
   await Promise.all(laufend)
+  if (stat.fehler > 5) {
+    const top = [...fehlerArten].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([art, n]) => `${n}× ${art}`)
+    console.error(`  Fehlerarten ${quelle.url}: ${top.join(' | ')}`)
+  }
   const gedeckelt = queue.length > 0 || abgebrochen
   const aufraeumen = await raeumeAuf(quelle.id, gesehen, gedeckelt)
   return `${besucht} Seiten${gedeckelt ? ` (${abgebrochen ? 'Rate-Limit-Abbruch' : `gedeckelt, ${maxSeiten}/Nacht`}, ${queue.length} offen)` : ''} via ${sitemap ? 'Sitemap' : 'Link-Spider'}: ${stat.neu} neu, ${stat.aktualisiert} aktualisiert, ${stat.unverändert} unverändert (davon ${ohneDownload} ohne Download), ${stat.duplikat} Duplikate, ${stat.abgelehnt} abgelehnt, ${stat.hubs} Hub-Seiten (→ Dateien), ${stat.fehler} Fehler${aufraeumen}`
