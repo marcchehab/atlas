@@ -9,7 +9,7 @@ import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
 import { SCORE_PROMPT, SCORE_BAENDER, MODELL_NAME } from './ai.js'
 import { NIVEAU_PROMPT, NIVEAU_BAENDER, niveauBandName, fachAnker, fachKriterien, wirksamesNiveau, KRITERIEN_PROMPT, mdZuHtml } from './niveau.js'
-import { NIVEAU_WARNUNG, layout, esc, kürze, sidebar, materialKarte, rangGruppe, loginSeite, filterLeiste, tagVorschlagChip, quellenKey, MaterialKarte, TagVorschlag, FilterChip, BASE_URL, tgPfad, koPfad, grossErst } from './views.js'
+import { NIVEAU_WARNUNG, nachDisziplin, layout, esc, kürze, sidebar, materialKarte, rangGruppe, loginSeite, filterLeiste, tagVorschlagChip, quellenKey, MaterialKarte, TagVorschlag, FilterChip, BASE_URL, tgPfad, koPfad, grossErst } from './views.js'
 
 const app = express()
 const SECRET = process.env.SESSION_SECRET ?? 'dev'
@@ -42,7 +42,7 @@ async function aktivesFach(req: express.Request): Promise<string> {
 // aktiv markiert Teilgebiet/Kompetenz als "T1.2" bzw. "K1.2.1".
 async function baueSidebar(fachCode: string, aktiv: string | undefined, user: Nutzer | null): Promise<string> {
   const alle = await prisma.fach.findMany({ include: { disziplin: true }, orderBy: [{ disziplin: { name: 'asc' } }, { id: 'asc' }] })
-  const faecher = alle.map((f) => ({ code: f.code, kuerzel: f.kuerzel, name: f.name, disziplin: f.disziplin.name }))
+  const faecher = alle.map((f) => ({ code: f.code, kuerzel: f.kuerzel, name: f.name, disziplin: f.disziplin.name, disziplinCode: f.disziplin.code }))
   const fach = await prisma.fach.findUnique({
     where: { code: fachCode },
     include: {
@@ -295,7 +295,7 @@ async function listeFragment(where: object, basisUrl: string, req: express.Reque
   }
   if (offset > 0) return kartenHtml + sentinel
   const [quellen, tags, formate, vorschlaege, niveau] = await filterDaten(user?.id ?? null, leicht, f)
-  const leiste = filterLeiste(quellen, tags, formate, vorschlaege, !!user, niveau, f.sort)
+  const leiste = filterLeiste(quellen, tags, formate, vorschlaege, !!user, niveau, f.sort, disziplinCode)
   const inhalt = gefiltert.length
     ? kartenHtml
     : leicht.length
@@ -329,10 +329,7 @@ app.get('/', async (req, res) => {
     prisma.quelle.count({ where: { todesCounter: { lt: 3 }, materialien: { some: { qualityScore: { gte: 20 }, versteckt: false, fehlCounter: { lt: 3 } } } } }),
     prisma.disziplin.findMany({ orderBy: { name: 'asc' }, include: { faecher: { orderBy: { id: 'asc' }, include: { lerngebiete: { orderBy: { nummer: 'asc' }, include: { teilgebiete: { orderBy: { code: 'asc' } } } } } } } }),
   ])
-  // Chemie ist zuletzt dazugekommen und am dünnsten bestückt — darum ans Ende der Karten,
-  // sonst stünde es alphabetisch zuoberst.
-  const ZULETZT = ['chemie']
-  disziplinen.sort((a, b) => (ZULETZT.indexOf(a.code) - ZULETZT.indexOf(b.code)) || a.name.localeCompare(b.name, 'de'))
+  disziplinen.sort(nachDisziplin)
 
   const body = `<h1>Unterrichtsmaterial für Schweizer Gymnasien</h1>
 <p>Atlas sammelt frei zugängliches Unterrichtsmaterial von Lehrpersonen für Maturitätsschulen und ordnet es den Lernzielen des <a href="https://edudoc.ch/record/232281/files/Rahmenlehrplan-maturitatsschulen.pdf" rel="noopener">Rahmenlehrplans Maturitätsschulen (EDK 2024)</a> zu — mit Kurzzusammenfassung, Link zur Originalquelle und Bewertungen aus der Community.</p>

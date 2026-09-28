@@ -409,7 +409,7 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
 }
 
 export interface SidebarDaten {
-  faecher: { code: string; kuerzel: string; name: string; disziplin: string }[] // Dropdown, nach Disziplin gruppiert
+  faecher: { code: string; kuerzel: string; name: string; disziplin: string; disziplinCode: string }[] // Dropdown, nach Disziplin gruppiert
   fachCode: string
   disziplinCode: string // fürs Melden-Formular (Disziplin-Hinweis)
   url: string | null
@@ -448,7 +448,7 @@ export function sidebar(d: SidebarDaten): string {
   }
 </div>
 <select onchange="location='/fach/'+this.value">
-${[...new Set(d.faecher.map((f) => f.disziplin))].map((disziplin) => `<optgroup label="${esc(disziplin)}">${d.faecher.filter((f) => f.disziplin === disziplin).map((f) => `<option value="${esc(f.code)}"${f.code === d.fachCode ? ' selected' : ''}>${esc(f.kuerzel)} – ${esc(f.name)}</option>`).join('')}</optgroup>`).join('')}
+${[...new Map(d.faecher.map((f) => [f.disziplinCode, { code: f.disziplinCode, name: f.disziplin }])).values()].sort(nachDisziplin).map((dz) => `<optgroup label="${esc(dz.name)}">${d.faecher.filter((f) => f.disziplinCode === dz.code).map((f) => `<option value="${esc(f.code)}"${f.code === d.fachCode ? ' selected' : ''}>${esc(f.kuerzel)} – ${esc(f.name)}</option>`).join('')}</optgroup>`).join('')}
 </select>
 ${d.lerngebiete
   .map(
@@ -474,6 +474,12 @@ ${tg.kompetenzen
 }
 
 // Eigenständige zentrierte Login-Seite im Eduskript-Stil (Card, Microsoft-Button, Divider, E-Mail).
+// Chemie ist zuletzt dazugekommen und am dünnsten bestückt — darum überall ans Ende der
+// Disziplinen, sonst stünde es alphabetisch zuoberst.
+const DISZIPLIN_ZULETZT = ['chemie']
+export const nachDisziplin = (a: { code: string; name: string }, b: { code: string; name: string }) =>
+  DISZIPLIN_ZULETZT.indexOf(a.code) - DISZIPLIN_ZULETZT.indexOf(b.code) || a.name.localeCompare(b.name, 'de')
+
 // Hinweis auf den vorläufigen Niveau-Score — steht im Filter, beim Badge und auf /niveau.
 // `ziel` zeigt auf die Abstimmung: die Fach-Seite, wo das Fach bekannt ist, sonst die Übersicht.
 export const NIVEAU_WARNUNG = (ziel = '/niveau') =>
@@ -634,7 +640,9 @@ export interface FilterChip {
   aktiv: boolean
 }
 
-export function filterLeiste(quellen: FilterChip[], tags: FilterChip[], formate: FilterChip[], vorschlaege: TagVorschlag[] = [], eingeloggt = false, niveau: FilterChip[] = [], sort = ''): string {
+export function filterLeiste(quellen: FilterChip[], tags: FilterChip[], formate: FilterChip[], vorschlaege: TagVorschlag[] = [], eingeloggt = false, niveau: FilterChip[] = [], sort = '', disziplinCode = ''): string {
+  // Ist die Disziplin bekannt, führt der Hinweis direkt zu ihrem Kriterienkatalog
+  const niveauZiel = disziplinCode ? `/niveau/${disziplinCode}` : '/niveau'
   const chevron = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>`
   const kategorien: [string, string, FilterChip[]][] = [
     ['quellen', 'Quellen', quellen],
@@ -654,7 +662,7 @@ ${kategorien
   .map(
     ([k, , werte]) => `<div class="fchips" data-k="${k}">
 ${werte.map((w) => `<button class="qchip${w.aktiv ? ' aktiv' : ''}" onclick="fltrToggle('${k}','${esc(w.wert)}')">${esc(w.label ?? w.wert)}<span class="chipzahl">${w.anzahl}</span></button>`).join('')}
-${k === 'niveau' ? `<span class="nivpresets"><button class="qchip" onclick="fltrSet('niveau',['Sek I','Sek I erweitert'])">Einstieg</button><button class="qchip" onclick="fltrSet('niveau',['Schwerpunktfach','Hochschule'])">Spitzenförderung</button><a class="meta" href="/niveau">Was ist das?</a></span>${NIVEAU_WARNUNG().replace('class="hinweis"', 'class="hinweis nivwarnung"')}` : ''}
+${k === 'niveau' ? `<span class="nivpresets"><button class="qchip" onclick="fltrSet('niveau',['Sek I','Sek I erweitert'])">Einstieg</button><button class="qchip" onclick="fltrSet('niveau',['Schwerpunktfach','Hochschule'])">Spitzenförderung</button><a class="meta" href="${niveauZiel}">Was ist das?</a></span>${NIVEAU_WARNUNG(niveauZiel).replace('class="hinweis"', 'class="hinweis nivwarnung"')}` : ''}
 ${k === 'tags' ? vorschlaege.map((v) => tagVorschlagChip(v, eingeloggt)).join('') : ''}
 </div>`
   )
@@ -676,7 +684,7 @@ export function materialKarte(m: MaterialKarte, eingeloggt: boolean, admin = fal
     </div>
     <div style="display:flex;flex-direction:column;gap:.4rem;align-items:flex-end">
       <div class="scores">
-    ${m.niveau != null ? `<a class="didaktikscore niveauscore" href="/niveau" title="Niveau-Score: ${m.niveau} · ${esc(m.niveauBand)} — ${NIVEAU_WARNUNG_KURZ}"><span class="oben"><span class="zahl">${m.niveau}</span><span class="klein">KI</span></span><span class="nlabel">Niveau-Score</span></a>` : ''}
+    ${m.niveau != null ? `<a class="didaktikscore niveauscore" href="${m.disziplinCode ? `/niveau/${m.disziplinCode}` : '/niveau'}" title="Niveau-Score: ${m.niveau} · ${esc(m.niveauBand)} — ${NIVEAU_WARNUNG_KURZ}"><span class="oben"><span class="zahl">${m.niveau}</span><span class="klein">KI</span></span><span class="nlabel">Niveau-Score</span></a>` : ''}
       ${rangGruppe(m, eingeloggt)}
       </div>
       ${admin ? `<button class="pfeil" title="Karte ausblenden (Admin)" hx-post="/admin/material/${m.id}/verstecken" hx-target="closest .karte" hx-swap="outerHTML" hx-confirm="Karte ausblenden?">✕</button>` : ''}
