@@ -1095,7 +1095,9 @@ if (process.argv[1]?.endsWith('crawler.ts') || process.argv[1]?.endsWith('crawle
   const force = process.argv.includes('--force')
   const gedeckelt = (process.argv.find((a) => a.startsWith('--gedeckelt='))?.slice(12) ?? '').split(',').filter(Boolean).map(Number)
   const lauf = einzeln
-    ? crawlQuelle(einzeln, force, false, Infinity).then((r) => console.log(r)).then(() => flushTagVorschlaege()).then(() => console.log(verbrauchText()))
+    // Standard ohne Deckel (MAX_SEITEN ist beim Einzellauf Infinity), aber per Env begrenzbar —
+    // nützlich, um eine grosse Quelle portionsweise oder zum Eingrenzen eines Fehlers zu crawlen
+    ? crawlQuelle(einzeln, force, false, process.env.MAX_SEITEN ? MAX_SEITEN : Infinity).then((r) => console.log(r)).then(() => flushTagVorschlaege()).then(() => console.log(verbrauchText()))
     : crawlAlle(force, ab, gedeckelt, process.argv.includes('--nur-offene'))
   lauf.then(() => prisma.$disconnect())
 }
