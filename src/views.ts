@@ -474,6 +474,14 @@ ${tg.kompetenzen
 }
 
 // Eigenständige zentrierte Login-Seite im Eduskript-Stil (Card, Microsoft-Button, Divider, E-Mail).
+// Hinweis auf den vorläufigen Niveau-Score — steht im Filter, beim Badge und auf /niveau.
+// `ziel` zeigt auf die Abstimmung: die Fach-Seite, wo das Fach bekannt ist, sonst die Übersicht.
+export const NIVEAU_WARNUNG = (ziel = '/niveau') =>
+  `<p class="hinweis">⚠ Neu versucht die KI ungefähr das Niveau zu ermitteln. Bitte helfen Sie, indem Sie <a href="${ziel}">die Gewichtung der Kriterien</a> mitbewerten! Generelles Feedback gern an <a href="mailto:marc@eduskript.org">marc@eduskript.org</a>.</p>`
+
+// Fürs title-Attribut, wo kein HTML geht
+export const NIVEAU_WARNUNG_KURZ = 'Neu versucht die KI ungefähr das Niveau zu ermitteln — bitte helfen Sie mit, die Gewichtung der Kriterien zu bewerten'
+
 export function loginSeite(opts: { microsoft: boolean; weiter: string; hinweis?: string }): string {
   const msIcon = `<svg style="width:20px;height:20px;margin-right:.5rem" viewBox="0 0 23 23" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 0h10.87v10.87H0z" fill="#f25022"/><path d="M12.13 0H23v10.87H12.13z" fill="#7fba00"/><path d="M0 12.13h10.87V23H0z" fill="#00a4ef"/><path d="M12.13 12.13H23V23H12.13z" fill="#ffb900"/></svg>`
   return `<!doctype html>
@@ -646,7 +654,7 @@ ${kategorien
   .map(
     ([k, , werte]) => `<div class="fchips" data-k="${k}">
 ${werte.map((w) => `<button class="qchip${w.aktiv ? ' aktiv' : ''}" onclick="fltrToggle('${k}','${esc(w.wert)}')">${esc(w.label ?? w.wert)}<span class="chipzahl">${w.anzahl}</span></button>`).join('')}
-${k === 'niveau' ? `<span class="nivpresets"><button class="qchip" onclick="fltrSet('niveau',['Sek I','Übergang'])">Einstieg</button><button class="qchip" onclick="fltrSet('niveau',['Gymnasium vertieft','Hochschule'])">Spitzenförderung</button><a class="meta" href="/niveau">Was ist das?</a></span><p class="hinweis nivwarnung">⚠ Wir sind gerade dabei, das Niveau zu eruieren. Die Niveau-Werte sind noch nicht korrekt — bitte vorerst nicht darauf verlassen.</p>` : ''}
+${k === 'niveau' ? `<span class="nivpresets"><button class="qchip" onclick="fltrSet('niveau',['Sek I','Sek I erweitert'])">Einstieg</button><button class="qchip" onclick="fltrSet('niveau',['Schwerpunktfach','Hochschule'])">Spitzenförderung</button><a class="meta" href="/niveau">Was ist das?</a></span>${NIVEAU_WARNUNG().replace('class="hinweis"', 'class="hinweis nivwarnung"')}` : ''}
 ${k === 'tags' ? vorschlaege.map((v) => tagVorschlagChip(v, eingeloggt)).join('') : ''}
 </div>`
   )
@@ -668,7 +676,7 @@ export function materialKarte(m: MaterialKarte, eingeloggt: boolean, admin = fal
     </div>
     <div style="display:flex;flex-direction:column;gap:.4rem;align-items:flex-end">
       <div class="scores">
-    ${m.niveau != null ? `<a class="didaktikscore niveauscore" href="/niveau" title="Niveau-Score (vorläufig, noch nicht korrekt): ${m.niveau} · ${esc(m.niveauBand)} — wie wird das bestimmt?"><span class="oben"><span class="zahl">${m.niveau}</span><span class="klein">KI</span></span><span class="nlabel">Niveau-Score</span></a>` : ''}
+    ${m.niveau != null ? `<a class="didaktikscore niveauscore" href="/niveau" title="Niveau-Score: ${m.niveau} · ${esc(m.niveauBand)} — ${NIVEAU_WARNUNG_KURZ}"><span class="oben"><span class="zahl">${m.niveau}</span><span class="klein">KI</span></span><span class="nlabel">Niveau-Score</span></a>` : ''}
       ${rangGruppe(m, eingeloggt)}
       </div>
       ${admin ? `<button class="pfeil" title="Karte ausblenden (Admin)" hx-post="/admin/material/${m.id}/verstecken" hx-target="closest .karte" hx-swap="outerHTML" hx-confirm="Karte ausblenden?">✕</button>` : ''}

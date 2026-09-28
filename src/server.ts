@@ -9,7 +9,7 @@ import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
 import { SCORE_PROMPT, SCORE_BAENDER, MODELL_NAME } from './ai.js'
 import { NIVEAU_PROMPT, NIVEAU_BAENDER, niveauBandName, fachAnker, fachKriterien, wirksamesNiveau, KRITERIEN_PROMPT, mdZuHtml } from './niveau.js'
-import { layout, esc, kürze, sidebar, materialKarte, rangGruppe, loginSeite, filterLeiste, tagVorschlagChip, quellenKey, MaterialKarte, TagVorschlag, FilterChip, BASE_URL, tgPfad, koPfad, grossErst } from './views.js'
+import { NIVEAU_WARNUNG, layout, esc, kürze, sidebar, materialKarte, rangGruppe, loginSeite, filterLeiste, tagVorschlagChip, quellenKey, MaterialKarte, TagVorschlag, FilterChip, BASE_URL, tgPfad, koPfad, grossErst } from './views.js'
 
 const app = express()
 const SECRET = process.env.SESSION_SECRET ?? 'dev'
@@ -865,7 +865,7 @@ app.get('/niveau', async (req, res) => {
   const disziplinen = await prisma.disziplin.findMany({ orderBy: { name: 'asc' } })
   const body = `<h1>Der Niveau-Score</h1>
 <p>Jedes Material bekommt neben dem <a href="/sortierung">Didaktik-Score</a> einen <strong>Niveau-Score</strong> von 1 bis 100. Er sagt, für welche Bildungsstufe der Inhalt fachlich gemacht ist — kein Qualitätsurteil, sondern eine Frage der Passung. Ein guter Einstieg ist so wertvoll wie eine anspruchsvolle Vertiefung.</p>
-<p class="hinweis">⚠ Die Niveau-Werte sind noch nicht korrekt — bitte vorerst nicht darauf verlassen.</p>
+${NIVEAU_WARNUNG()}
 <table>
 <tr><th>Score</th><th>Band</th><th></th></tr>
 ${NIVEAU_BAENDER.map(([von, name, kurz], i) => `<tr><td>${von}–${(NIVEAU_BAENDER[i + 1]?.[0] ?? 101) - 1}</td><td>${esc(name)}</td><td class="meta">${esc(kurz)}</td></tr>`).join('\n')}
@@ -903,7 +903,7 @@ app.get('/niveau/:code', async (req, res) => {
   const { stimmenNach, meine } = await kriterienStand(ks, user?.id)
   const body = `<h1>Niveau-Score ${esc(d.name)}</h1>
 <p>Diese ${ks.length} Tätigkeiten sind die Grundlage. Die KI erfasst pro Material, welche davon vorkommen und wie zentral; daraus wird der Score gerechnet.</p>
-<p class="hinweis">⚠ Die Niveau-Werte sind noch nicht korrekt — bitte vorerst nicht darauf verlassen.</p>
+${NIVEAU_WARNUNG(`/niveau/${d.code}`)}
 <p>${user
     ? '<strong>Stimmt eine Einstufung nicht?</strong> Zieh den Regler — das ist deine Stimme, sie wird sofort gespeichert. Wirksam wird der Median aus Startwert und allen Stimmen; mit ↺ nimmst du deine zurück.'
     : '<a href="/login">Anmelden</a>, um die Einstufungen mitzubestimmen.'}</p>
