@@ -865,7 +865,6 @@ app.get('/niveau', async (req, res) => {
   const disziplinen = await prisma.disziplin.findMany({ orderBy: { name: 'asc' } })
   const body = `<h1>Der Niveau-Score</h1>
 <p>Jedes Material bekommt neben dem <a href="/sortierung">Didaktik-Score</a> einen <strong>Niveau-Score</strong> von 1 bis 100. Er sagt, für welche Bildungsstufe der Inhalt fachlich gemacht ist — kein Qualitätsurteil, sondern eine Frage der Passung. Ein guter Einstieg ist so wertvoll wie eine anspruchsvolle Vertiefung.</p>
-${NIVEAU_WARNUNG()}
 <table>
 <tr><th>Score</th><th>Band</th><th></th></tr>
 ${NIVEAU_BAENDER.map(([von, name, kurz], i) => `<tr><td>${von}–${(NIVEAU_BAENDER[i + 1]?.[0] ?? 101) - 1}</td><td>${esc(name)}</td><td class="meta">${esc(kurz)}</td></tr>`).join('\n')}
