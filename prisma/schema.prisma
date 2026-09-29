@@ -105,6 +105,10 @@ model Material {
   titel          String
   zusammenfassung String
   qualityScore   Int? // pro Material — eine Quelle kann gute und schwache Seiten enthalten
+  // Hash aus Modell und bewertungsrelevantem Prompt (Didaktik-, Niveau-, Kriterien-Teil, Fach-Anker,
+  // Katalog-Texte) — weicht er vom aktuellen ab, gilt das Material als veraltet und wird beim
+  // nächsten Crawl neu bewertet, auch wenn sich sein Inhalt nicht geändert hat
+  bewertungsVersion String?
   niveau         Int? // Niveau-Score 1–100 (fachliches Anspruchsniveau, siehe src/niveau.ts); null = unbewertet
   niveauKi       Int? // die direkte Schätzung der KI, unabhängig von den Kriterien — Rückfall und Vergleichswert
   format         String? // deterministisch vom Crawler: webseite|markdown|repo|pdf|dokument|präsentation|video

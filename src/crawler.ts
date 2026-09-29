@@ -4,8 +4,8 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { prisma } from './db.js'
 import { extract, stripTags } from './extract.js'
-import { klassifiziere, ZuordnungsOption, verbrauchText, guthaben } from './ai.js'
-import { fachAnker, fachKriterien, katalogMitStimmen, niveauScore, Kriterium } from './niveau.js'
+import { klassifiziere, ZuordnungsOption, verbrauchText, guthaben, MODEL, SCORE_PROMPT } from './ai.js'
+import { fachAnker, fachKriterien, katalogMitStimmen, niveauScore, Kriterium, NIVEAU_PROMPT, KRITERIEN_PROMPT } from './niveau.js'
 import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
 import { syncEduskriptVerzeichnis } from './verzeichnis.js'
@@ -33,6 +33,7 @@ interface KlassifikationsKontext {
   tagNamen: string[]
   niveauAnker: string
   katalog: Kriterium[]
+  version: string // bewertungsVersion für diesen Kontext
   teilgebiete: Awaited<ReturnType<typeof ladeKontext>>['teilgebiete']
 }
 
@@ -66,10 +67,20 @@ async function ladeKontext(disziplinCode?: string | null) {
   const stimmenNach = new Map<string, number[]>()
   for (const st of stimmen) stimmenNach.set(st.kriteriumId, [...(stimmenNach.get(st.kriteriumId) ?? []), st.niveau])
   const katalog = katalogMitStimmen(disziplinen.flatMap(([code]) => fachKriterien(code) ?? []), stimmenNach)
-  return { optionen, tagNamen: tags.map((t) => t.name), niveauAnker, katalog, teilgebiete }
+  // Bewertungsversion: nur, was die Bewertung bestimmt — nicht Raster und Tags (die ändern sich laufend
+  // und würden sonst alles veralten lassen), nicht die Stimmen (in den Prompt geht nur der Katalog-Text;
+  // Startwerte der Items wirken über den Fach-Anker mit)
+  const version = hash([MODEL, SCORE_PROMPT, NIVEAU_PROMPT, KRITERIEN_PROMPT, niveauAnker, katalog.map((k) => `${k.id}:${k.text}`).join('|')].join('\n')).slice(0, 16)
+  return { optionen, tagNamen: tags.map((t) => t.name), niveauAnker, katalog, version, teilgebiete }
 }
 
 // Ein Text (Seite oder Datei) → Klassifikation → Material mit Zuordnungen/Tags.
+// Gibt es Materialien dieser Quelle mit veralteter Bewertung (andere oder fehlende bewertungsVersion)?
+// Dann darf der Crawl die Quelle nicht als Ganzes überspringen (Git-HEAD, Cloud-Signaturen).
+async function hatVeraltete(quelleId: number, ctx: KlassifikationsKontext): Promise<boolean> {
+  return (await prisma.material.count({ where: { quelleId, OR: [{ bewertungsVersion: null }, { bewertungsVersion: { not: ctx.version } }] } })) > 0
+}
+
 async function verarbeiteMaterial(
   quelleId: number,
   url: string,
@@ -81,7 +92,7 @@ async function verarbeiteMaterial(
   format = 'webseite'
 ): Promise<'neu' | 'aktualisiert' | 'unverändert' | 'abgelehnt'> {
   const vorhanden = await prisma.material.findUnique({ where: { url } })
-  if (vorhanden && vorhanden.contentHash === contentHash && !force) return 'unverändert'
+  if (vorhanden && vorhanden.contentHash === contentHash && vorhanden.bewertungsVersion === ctx.version && !force) return 'unverändert'
 
   const k = await klassifiziere(text, ctx.optionen, ctx.tagNamen, ctx.niveauAnker, ctx.katalog)
   const niveauKi = Math.max(1, Math.min(100, Math.round(k.niveau)))
@@ -95,8 +106,8 @@ async function verarbeiteMaterial(
     // Abgelehntes behalten (Score <20 = öffentlich unsichtbar), damit Admins es einsehen können
     const abgelehnt = await prisma.material.upsert({
       where: { url },
-      create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), niveau, niveauKi, contentHash, format },
-      update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), niveau, niveauKi, contentHash, format },
+      create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), niveau, niveauKi, contentHash, format, bewertungsVersion: ctx.version },
+      update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), niveau, niveauKi, contentHash, format, bewertungsVersion: ctx.version },
     })
     await prisma.materialZuordnung.deleteMany({ where: { materialId: abgelehnt.id } })
     await prisma.materialTag.deleteMany({ where: { materialId: abgelehnt.id } })
@@ -106,8 +117,8 @@ async function verarbeiteMaterial(
 
   const material = await prisma.material.upsert({
     where: { url },
-    create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, niveau, niveauKi, contentHash, format },
-    update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, niveau, niveauKi, contentHash, format },
+    create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, niveau, niveauKi, contentHash, format, bewertungsVersion: ctx.version },
+    update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, niveau, niveauKi, contentHash, format, bewertungsVersion: ctx.version },
   })
 
   const zuordnungen: { teilgebietId: number; kompetenzId: number | null }[] = []
@@ -412,7 +423,9 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
     try {
       // Bekanntes Material: Sitemap-lastmod unverändert → gar kein Download;
       // sonst konditionaler Request (If-None-Match/If-Modified-Since) → 304 spart den Body.
-      const bekannt = force ? null : await prisma.material.findUnique({ where: { url } })
+      // Veraltete Bewertung zählt wie unbekannt: kein Sitemap-/304-Skip, Inhalt neu laden und bewerten
+      const gefunden = force ? null : await prisma.material.findUnique({ where: { url } })
+      const bekannt = gefunden?.bewertungsVersion === ctx.version ? gefunden : null
       const smLastmod = lastmods.get(url)
       if (bekannt && smLastmod && bekannt.sitemapLastmod === smLastmod) {
         gesehen.add(url)
@@ -512,7 +525,7 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
       }
       const h = hash(text)
       const vorhanden = await prisma.material.findUnique({ where: { url: effektiveUrl } })
-      if (vorhanden && vorhanden.contentHash === h && !force) {
+      if (vorhanden && vorhanden.contentHash === h && vorhanden.bewertungsVersion === ctx.version && !force) {
         stat.unverändert++
         await prisma.material.update({ where: { id: vorhanden.id }, data: cacheDaten })
         continue
@@ -632,7 +645,7 @@ async function crawlBuchSpa(quelle: { id: number }, seiten: BuchSeite[], ctx: Kl
       const h = hash(text)
       gesehen.add(s.link)
       const vorhanden = await prisma.material.findUnique({ where: { url: s.link } })
-      if (vorhanden && vorhanden.contentHash === h && !force) { stat.unverändert++; continue }
+      if (vorhanden && vorhanden.contentHash === h && vorhanden.bewertungsVersion === ctx.version && !force) { stat.unverändert++; continue }
       const dupe = await prisma.material.findFirst({ where: { quelleId: quelle.id, contentHash: h, url: { not: s.link } } })
       if (dupe) {
         if (vorhanden) await prisma.material.delete({ where: { url: s.link } })
@@ -673,7 +686,7 @@ async function crawlGit(quelle: { id: number; url: string; contentHash: string |
     await git(['clone', '--depth', '1', quelle.url, dir])
   }
   const head = await git(['rev-parse', 'HEAD'], dir)
-  if (head === quelle.contentHash && !force) return 'unverändert (HEAD)'
+  if (head === quelle.contentHash && !force && !(await hatVeraltete(quelle.id, ctx))) return 'unverändert (HEAD)'
 
   const mdDateien = (await git(['ls-files', '*.md', '*.markdown'], dir)).split('\n').filter(Boolean)
   const stat = { neu: 0, aktualisiert: 0, unverändert: 0, abgelehnt: 0, fehler: 0 }
@@ -983,6 +996,7 @@ async function crawlCloud(quelle: { id: number; url: string; etag: string | null
         ? await listeOneDrive(quelle.url)
         : await listeNextcloud(quelle.url)
 
+  const veraltet = await hatVeraltete(quelle.id, ctx) // dann alle Dateien neu bewerten, auch unveränderte
   // Signaturen der letzten Nacht (Quelle.etag als JSON-Map pfad→sig)
   let sigs: Record<string, string> = {}
   try { sigs = JSON.parse(quelle.etag ?? '{}') } catch { /* alter Wert, egal */ }
@@ -1001,7 +1015,7 @@ async function crawlCloud(quelle: { id: number; url: string; etag: string | null
     const url = `${quelle.url}#${d.pfad}` // kein Deep-Link in anonyme Freigaben möglich — Fragment macht die URL eindeutig
     gesehen.add(url)
     neueSigs[d.pfad] = d.sig
-    if (sigs[d.pfad] === d.sig && !force) { stat.unverändert++; continue }
+    if (sigs[d.pfad] === d.sig && !force && !veraltet) { stat.unverändert++; continue }
     if (istVideo) {
       // Nur Metadaten — die AI ordnet nach Dateiname/Ordnerpfad zu
       const text = `Videodatei aus einem Unterrichtsordner (kein Transkript verfügbar — nur nach Dateiname und Ordnerpfad beurteilen):\nDatei: ${d.pfad}\nGrösse: ${Math.round(d.groesse / 1024 / 1024)} MB`
