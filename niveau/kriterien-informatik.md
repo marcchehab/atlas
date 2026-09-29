@@ -13,7 +13,7 @@ Das Band ergibt sich aus dem Niveau, die Überschriften sind nur zum Lesen.
 
 ## Sek I
 - `block-prog` | 15 | Blockbasiert programmieren (Scratch, Blockly)
-- `medienbildung` | 15 | Medienbildung: Internet, Daten und Sicherheit nach LP21 MI
+- `medienbildung` | 15 | Internet, Daten und Sicherheit im Alltag erklären (Medienbildung nach LP21 MI)
 
 ## Sek I erweitert / Progymnasium
 - `binaer-spielerisch` | 30 | Binärzahlen spielerisch entdecken
@@ -26,10 +26,10 @@ Das Band ergibt sich aus dem Niveau, die Überschriften sind nur zum Lesen.
 - `pruefziffern` | 44 | Prüfziffern nachrechnen
 - `caesar-vigenere` | 45 | Caesar/Vigenère anwenden
 - `programme-lesen` | 45 | Programme lesen und erweitern
-- `python-schleifen` | 48 | Python von den ersten Schleifen bis zu eigenen Funktionen mit Listen
+- `python-schleifen` | 48 | In Python von den ersten Schleifen bis zu eigenen Funktionen mit Listen programmieren
 - `sortieren-suchen` | 50 | Sortieren und Suchen vergleichen
 - `oop-nutzen` | 50 | Fertige Klassen und Objekte verwenden (Bibliotheken, Greenfoot/Kara)
-- `automaten` | 52 | Automaten
+- `automaten` | 52 | Abläufe als endliche Automaten modellieren
 - `projekt-angeleitet` | 54 | Angeleitetes Projekt umsetzen (Spiel, Simulation)
 - `sql` | 55 | SQL-Abfragen schreiben
 - `rsa-klein` | 57 | RSA mit kleinen Zahlen durchrechnen
@@ -37,16 +37,16 @@ Das Band ergibt sich aus dem Niveau, die Überschriften sind nur zum Lesen.
 
 ## Schwerpunkt-/Ergänzungsfach
 - `oop-entwerfen` | 64 | Eigene Klassen und Vererbung entwerfen
-- `rekursion` | 65 | Rekursion
+- `rekursion` | 65 | Probleme rekursiv lösen
 - `datenstrukturen-impl` | 68 | Datenstrukturen selbst implementieren (Stack, Queue, Baum, Graph)
 - `o-notation` | 68 | Laufzeit in O-Notation bestimmen
-- `graphalgorithmen` | 70 | Graphalgorithmen
-- `berechenbarkeit` | 72 | Berechenbarkeit und ihre Grenzen
-- `formale-sprachen` | 74 | Formale Sprachen und Grammatiken
+- `graphalgorithmen` | 70 | Graphalgorithmen (BFS, DFS, Dijkstra) implementieren und anwenden
+- `berechenbarkeit` | 72 | Grenzen der Berechenbarkeit begründen (Halteproblem)
+- `formale-sprachen` | 74 | Formale Sprachen mit Grammatiken beschreiben und erkennen
 - `olympiade-r1` | 75 | Olympiade 1. Runde: eigenen effizienten Algorithmus finden
 
 ## Hochschule
-- `eth-erstes-jahr` | 85 | Stoff des ersten Studienjahrs (ETH-Informatik)
+- `eth-erstes-jahr` | 85 | Aufgaben aus dem ersten Studienjahr lösen (ETH-Informatik)
 - `korrektheitsbeweis` | 88 | Korrektheits- und Laufzeitbeweise führen
-- `np-vollstaendigkeit` | 92 | NP-Vollständigkeit
-- `olympiade-final` | 92 | Olympiade-Finalrunde
+- `np-vollstaendigkeit` | 92 | NP-Vollständigkeit durch Reduktion beweisen
+- `olympiade-final` | 92 | Aufgaben der Olympiade-Finalrunde lösen

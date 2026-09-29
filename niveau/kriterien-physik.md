@@ -18,29 +18,29 @@ Prompt wird daraus erzeugt. Abgeleitet aus der gekürzten Ankerfassung vom 27.9.
 - `protokoll` | 34 | Ein Experiment nach Anleitung durchführen und protokollieren
 
 ## Grundlagenfach
-- `kinematik` | 45 | Kinematik und Dynamik mit Beschleunigung
+- `kinematik` | 45 | Bewegungen mit konstanter Beschleunigung und Newtons Gesetzen berechnen
 - `groessenordnung` | 46 | Grössenordnungen abschätzen und Resultate plausibilisieren
-- `linsengleichung` | 48 | Optik mit der Linsengleichung
+- `linsengleichung` | 48 | Optische Abbildungen mit der Linsengleichung berechnen
 - `gleichstromkreis` | 50 | Gleichstromkreise analysieren (Ersatzwiderstand, Leistung, Kosten)
-- `waermelehre` | 52 | Wärmelehre: Mischtemperatur und Schmelzwärme
-- `schiefer-wurf` | 53 | Schiefer Wurf mit Diagrammen
+- `waermelehre` | 52 | Mischtemperaturen und Schmelzwärme berechnen
+- `schiefer-wurf` | 53 | Den schiefen Wurf berechnen und in Diagrammen darstellen
 - `schwingungen` | 54 | Schwingungen beschreiben
 - `schiefe-ebene` | 56 | Kräfte an der schiefen Ebene zerlegen und literal herleiten
 - `erhaltungssaetze` | 57 | Impuls- und Energieerhaltung begründet anwenden
 
 ## Schwerpunkt-/Ergänzungsfach
-- `fehlerrechnung` | 64 | Fehlerrechnung und Messunsicherheit
+- `fehlerrechnung` | 64 | Messunsicherheiten fortpflanzen und angeben
 - `kepler` | 66 | Keplers Gesetze aus dem Gravitationsgesetz herleiten
 - `kreisprozess` | 68 | Kreisprozesse im p-V-Diagramm mit Arbeit und Wirkungsgrad
-- `mechanik-analysis` | 70 | Mechanik mit Analysis (Trägheitsmoment per Integral)
+- `mechanik-analysis` | 70 | Mechanikprobleme mit Analysis lösen (z.B. Trägheitsmoment per Integral)
 - `em-felder` | 72 | Elektromagnetische Felder allgemein herleiten (Wien-Filter, Massenspektrometer)
-- `relativitaet` | 74 | Spezielle Relativitätstheorie
-- `quantenphysik` | 74 | Quantenphysik: Photoeffekt, Atommodelle
-- `olympiade-phy` | 76 | Physik-Olympiade 1. und 2. Runde
+- `relativitaet` | 74 | Zeitdilatation und Längenkontraktion herleiten und berechnen
+- `quantenphysik` | 74 | Photoeffekt und Atommodelle quantitativ erklären
+- `olympiade-phy` | 76 | Aufgaben der Physik-Olympiade (1. und 2. Runde) lösen
 
 ## Hochschule
 - `dgl-bewegung` | 85 | Bewegungsgleichungen als Differentialgleichung aufstellen und lösen
-- `statistische-fehler` | 86 | Statistische Fehleranalyse und Fit
-- `zentralpotential` | 88 | Zentralpotential und Streuquerschnitt
-- `lagrange` | 90 | Lagrange-Formalismus
-- `ipho-modellbildung` | 92 | Offene Modellbildung auf IPhO-Niveau
+- `statistische-fehler` | 86 | Messdaten statistisch auswerten und Modelle fitten
+- `zentralpotential` | 88 | Bewegung im Zentralpotential und Streuquerschnitte berechnen
+- `lagrange` | 90 | Bewegungsgleichungen mit dem Lagrange-Formalismus herleiten
+- `ipho-modellbildung` | 92 | Offene Probleme auf IPhO-Niveau modellieren
