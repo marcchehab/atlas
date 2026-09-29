@@ -757,10 +757,12 @@ for i in z.infolist():
     open(d, 'wb').write(z.read(i))
 `
 
-// Textextraktion über CLI-Werkzeuge: pdftotext (poppler-utils), catdoc/catppt (catdoc) für alte Office-Formate
+// Textextraktion über CLI-Werkzeuge: pdftotext (poppler-utils), catdoc/catppt (catdoc) für alte Office-Formate.
+// stderr verwerfen: kaputte PDFs erzeugen >64 KB Warnungen, eine ungelesene Pipe läuft voll und
+// pdftotext blockiert für immer (hat den Crawl mehrfach tagelang angehalten). Timeout als Netz.
 function werkzeug(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    const p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'ignore'], timeout: 120_000, killSignal: 'SIGKILL' })
     let out = ''
     p.stdout.on('data', (d) => (out += d))
     p.on('error', reject)
