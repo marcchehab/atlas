@@ -332,8 +332,7 @@ app.get('/', async (req, res) => {
   disziplinen.sort(nachDisziplin)
 
   const body = `<h1>Unterrichtsmaterial für Schweizer Gymnasien</h1>
-<p>Atlas sammelt frei zugängliches Unterrichtsmaterial von Lehrpersonen für Maturitätsschulen und ordnet es den Lernzielen des <a href="https://edudoc.ch/record/232281/files/Rahmenlehrplan-maturitatsschulen.pdf" rel="noopener">Rahmenlehrplans Maturitätsschulen (EDK 2024)</a> zu — mit Kurzzusammenfassung, Link zur Originalquelle und Bewertungen aus der Community.</p>
-<p>Atlas sammelt Material für die Grundlagenfächer Informatik, Physik, Mathematik und Chemie. Weitere Fächer? Schreib an <a href="mailto:marc@eduskript.org">marc@eduskript.org</a>.</p>
+<p>Atlas sammelt frei zugängliches Unterrichtsmaterial von Lehrpersonen für die Grundlagenfächer Informatik, Physik, Mathematik und Chemie und ordnet es den Lernzielen des <a href="https://edudoc.ch/record/232281/files/Rahmenlehrplan-maturitatsschulen.pdf" rel="noopener">Rahmenlehrplans Maturitätsschulen (EDK 2024)</a> zu, mit Kurzzusammenfassung, Link zur Originalquelle und Bewertungen aus der Community. Weitere Fächer? Schreib an <a href="mailto:marc@eduskript.org">marc@eduskript.org</a>.</p>
 <p>Atlas ist ein Projekt von Marc Chéhab. Er ist Informatiklehrer und entwickelt <a href="https://eduskript.org/?utm_source=atlas&amp;utm_content=footer" rel="noopener">eduskript.org</a>, eine Plattform für interaktive Onlineskripte.</p>
 <p class="meta">${materialien} Materialien aus ${quellen} Quellen · kostenlos und ohne Registrierung durchsuchbar</p>
 <form class="suche" action="/suche"><input type="search" name="q" placeholder="Volltextsuche, z.B. binärsystem arbeitsblatt"><button>Suchen</button></form>
