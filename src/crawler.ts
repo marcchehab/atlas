@@ -338,6 +338,10 @@ async function ladeSitemap(origin: string): Promise<{ loc: string; lastmod?: str
   }
 }
 
+// Bereiche, die nie Material sind. leifiphysik.de/sammlung/…: automatisch erzeugte Zusammenstellungen
+// (5000+, oft fast identisch), die nur auf die regulären Aufgabenseiten verlinken — die crawlen wir ohnehin.
+const AUSSCHLUESSE = [/^(www\.)?leifiphysik\.de\/sammlung\//]
+
 async function crawlWebsite(quelle: { id: number; url: string }, ctx: KlassifikationsKontext, force: boolean, maxSeiten = MAX_SEITEN): Promise<string> {
   // Buch-SPA erkennen (leere JS-Shell, Inhalte als .md daneben) — dann direkt lesen statt spidern
   const spaBasis = (() => { const u = new URL(quelle.url); u.search = ''; u.hash = ''; return u.toString().replace(/\/$/, '') })()
@@ -373,6 +377,7 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
     try {
       const p = new URL(u)
       if (p.hostname !== host || (BINAER.test(p.pathname) && !dateiExt(p))) return false
+      if (AUSSCHLUESSE.some((re) => re.test(p.hostname + p.pathname))) return false
       return basisPfad === '' || p.pathname === basisPfad || p.pathname.startsWith(basisPfad + '/')
     } catch { return false }
   }
