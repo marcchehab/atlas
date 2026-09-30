@@ -109,6 +109,10 @@ model Material {
   // Katalog-Texte) — weicht er vom aktuellen ab, gilt das Material als veraltet und wird beim
   // nächsten Crawl neu bewertet, auch wenn sich sein Inhalt nicht geändert hat
   bewertungsVersion String?
+  // Handkorrektur (scripts/korrigieren.ts): gilt, solange der Inhalt denselben Hash hat — auch bei
+  // --force und geänderter Bewertungsversion. Ändert sich die Seite, verfällt sie.
+  korrekturHash  String?
+  niveauManuell  Int? // direkt gesetztes Niveau; sonst gilt der Katalog-Wert aus den korrigierten Tätigkeiten
   niveau         Int? // Niveau-Score 1–100 (fachliches Anspruchsniveau, siehe src/niveau.ts); null = unbewertet
   niveauKi       Int? // die direkte Schätzung der KI, unabhängig von den Kriterien — Rückfall und Vergleichswert
   format         String? // deterministisch vom Crawler: webseite|markdown|repo|pdf|dokument|präsentation|video

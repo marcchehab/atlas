@@ -22,7 +22,7 @@ if (stimmen.length) console.log(`${stimmen.length} Stimmen zu ${stimmenNach.size
 const materialien = await prisma.material.findMany({
   where: { kriterien: { some: {} } },
   select: {
-    id: true, niveau: true, niveauKi: true, titel: true,
+    id: true, niveau: true, niveauKi: true, titel: true, korrekturHash: true, niveauManuell: true,
     kriterien: { select: { kriteriumId: true, gewicht: true } },
     quelle: { select: { disziplin: true } },
   },
@@ -33,7 +33,9 @@ const verschiebung: number[] = []
 for (const m of materialien) {
   const roh = fachKriterien(m.quelle.disziplin ?? '') ?? fachKriterien('informatik') ?? []
   const katalog = katalogMitStimmen(roh, stimmenNach)
-  const neu = berechneNiveau(m.kriterien.map((k) => ({ id: k.kriteriumId, gewicht: k.gewicht })), katalog) ?? m.niveauKi
+  const katalogWert = berechneNiveau(m.kriterien.map((k) => ({ id: k.kriteriumId, gewicht: k.gewicht })), katalog)
+  // Handkorrigierte Materialien: immer der gesetzte bzw. der Katalog-Wert, unabhängig von NIVEAU_QUELLE
+  const neu = m.korrekturHash ? (m.niveauManuell ?? katalogWert ?? m.niveauKi) : (katalogWert ?? m.niveauKi)
   if (neu == null || neu === m.niveau) continue
   geaendert++
   verschiebung.push(neu - (m.niveau ?? neu))

@@ -78,7 +78,7 @@ async function ladeKontext(disziplinCode?: string | null) {
 // Gibt es Materialien dieser Quelle mit veralteter Bewertung (andere oder fehlende bewertungsVersion)?
 // Dann darf der Crawl die Quelle nicht als Ganzes überspringen (Git-HEAD, Cloud-Signaturen).
 async function hatVeraltete(quelleId: number, ctx: KlassifikationsKontext): Promise<boolean> {
-  return (await prisma.material.count({ where: { quelleId, OR: [{ bewertungsVersion: null }, { bewertungsVersion: { not: ctx.version } }] } })) > 0
+  return (await prisma.material.count({ where: { quelleId, korrekturHash: null, OR: [{ bewertungsVersion: null }, { bewertungsVersion: { not: ctx.version } }] } })) > 0
 }
 
 async function verarbeiteMaterial(
@@ -92,6 +92,8 @@ async function verarbeiteMaterial(
   format = 'webseite'
 ): Promise<'neu' | 'aktualisiert' | 'unverändert' | 'abgelehnt'> {
   const vorhanden = await prisma.material.findUnique({ where: { url } })
+  // Handkorrektur gilt, solange der Inhalt gleich ist — auch gegen --force und neue Bewertungsversion
+  if (vorhanden?.korrekturHash && vorhanden.korrekturHash === contentHash) return 'unverändert'
   if (vorhanden && vorhanden.contentHash === contentHash && vorhanden.bewertungsVersion === ctx.version && !force) return 'unverändert'
 
   const k = await klassifiziere(text, ctx.optionen, ctx.tagNamen, ctx.niveauAnker, ctx.katalog)
@@ -107,7 +109,7 @@ async function verarbeiteMaterial(
     const abgelehnt = await prisma.material.upsert({
       where: { url },
       create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), niveau, niveauKi, contentHash, format, bewertungsVersion: ctx.version },
-      update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), niveau, niveauKi, contentHash, format, bewertungsVersion: ctx.version },
+      update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: Math.min(k.qualityScore, 19), niveau, niveauKi, contentHash, format, bewertungsVersion: ctx.version, korrekturHash: null, niveauManuell: null },
     })
     await prisma.materialZuordnung.deleteMany({ where: { materialId: abgelehnt.id } })
     await prisma.materialTag.deleteMany({ where: { materialId: abgelehnt.id } })
@@ -118,7 +120,7 @@ async function verarbeiteMaterial(
   const material = await prisma.material.upsert({
     where: { url },
     create: { url, quelleId, titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, niveau, niveauKi, contentHash, format, bewertungsVersion: ctx.version },
-    update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, niveau, niveauKi, contentHash, format, bewertungsVersion: ctx.version },
+    update: { titel: k.titel, zusammenfassung: k.zusammenfassung, qualityScore: k.qualityScore, niveau, niveauKi, contentHash, format, bewertungsVersion: ctx.version, korrekturHash: null, niveauManuell: null },
   })
 
   const zuordnungen: { teilgebietId: number; kompetenzId: number | null }[] = []
@@ -425,7 +427,7 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
       // sonst konditionaler Request (If-None-Match/If-Modified-Since) → 304 spart den Body.
       // Veraltete Bewertung zählt wie unbekannt: kein Sitemap-/304-Skip, Inhalt neu laden und bewerten
       const gefunden = force ? null : await prisma.material.findUnique({ where: { url } })
-      const bekannt = gefunden?.bewertungsVersion === ctx.version ? gefunden : null
+      const bekannt = gefunden && (gefunden.bewertungsVersion === ctx.version || gefunden.korrekturHash) ? gefunden : null
       const smLastmod = lastmods.get(url)
       if (bekannt && smLastmod && bekannt.sitemapLastmod === smLastmod) {
         gesehen.add(url)
@@ -525,7 +527,7 @@ async function crawlWebsite(quelle: { id: number; url: string }, ctx: Klassifika
       }
       const h = hash(text)
       const vorhanden = await prisma.material.findUnique({ where: { url: effektiveUrl } })
-      if (vorhanden && vorhanden.contentHash === h && vorhanden.bewertungsVersion === ctx.version && !force) {
+      if (vorhanden && vorhanden.contentHash === h && (vorhanden.korrekturHash === h || (vorhanden.bewertungsVersion === ctx.version && !force))) {
         stat.unverändert++
         await prisma.material.update({ where: { id: vorhanden.id }, data: cacheDaten })
         continue
@@ -645,7 +647,7 @@ async function crawlBuchSpa(quelle: { id: number }, seiten: BuchSeite[], ctx: Kl
       const h = hash(text)
       gesehen.add(s.link)
       const vorhanden = await prisma.material.findUnique({ where: { url: s.link } })
-      if (vorhanden && vorhanden.contentHash === h && vorhanden.bewertungsVersion === ctx.version && !force) { stat.unverändert++; continue }
+      if (vorhanden && vorhanden.contentHash === h && (vorhanden.korrekturHash === h || (vorhanden.bewertungsVersion === ctx.version && !force))) { stat.unverändert++; continue }
       const dupe = await prisma.material.findFirst({ where: { quelleId: quelle.id, contentHash: h, url: { not: s.link } } })
       if (dupe) {
         if (vorhanden) await prisma.material.delete({ where: { url: s.link } })
