@@ -8,7 +8,7 @@
 // Ohne NIVEAU_QUELLE=kriterien zeigt das Skript den Unterschied trotzdem an, schreibt aber nicht:
 // so lässt sich vor dem Umschalten sehen, was passieren würde.
 import { prisma } from '../src/db.js'
-import { fachKriterien, berechneNiveau, katalogMitStimmen, NIVEAU_QUELLE } from '../src/niveau.js'
+import { fachKriterien, berechneNiveau, katalogMitStimmen, niveauScore, NIVEAU_QUELLE } from '../src/niveau.js'
 
 const schreiben = process.argv.includes('--schreiben')
 
@@ -35,7 +35,8 @@ for (const m of materialien) {
   const katalog = katalogMitStimmen(roh, stimmenNach)
   const katalogWert = berechneNiveau(m.kriterien.map((k) => ({ id: k.kriteriumId, gewicht: k.gewicht })), katalog)
   // Handkorrigierte Materialien: immer der gesetzte bzw. der Katalog-Wert, unabhängig von NIVEAU_QUELLE
-  const neu = m.korrekturHash ? (m.niveauManuell ?? katalogWert ?? m.niveauKi) : (katalogWert ?? m.niveauKi)
+  const treffer = m.kriterien.map((k) => ({ id: k.kriteriumId, gewicht: k.gewicht }))
+  const neu = m.korrekturHash ? (m.niveauManuell ?? katalogWert ?? m.niveauKi) : m.niveauKi == null ? katalogWert : niveauScore(treffer, katalog, m.niveauKi)
   if (neu == null || neu === m.niveau) continue
   geaendert++
   verschiebung.push(neu - (m.niveau ?? neu))

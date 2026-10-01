@@ -148,6 +148,14 @@ ${katalog.map((k) => `   ${k.id}: ${k.text}`).join('\n')}` : ''}`
     // Gelegentlich liefert ein Anbieter unvollständiges JSON (einzelne Felder fehlen, oder die
     // Antwort kommt mit Markdown-Rahmen). Fehlende Listen auffüllen, statt später beim .filter()
     // mitten in der Verarbeitung abzustürzen und die ganze Seite zu verlieren.
+    // Ohne Scores, Titel oder Zusammenfassung ist die Antwort unbrauchbar (kam im Recrawl ~20× vor und
+    // liess das Speichern scheitern) → wie unlesbar behandeln und neu fragen
+    if (!Number.isFinite(Number(k.qualityScore)) || !Number.isFinite(Number(k.niveau)) || typeof k.titel !== 'string' || typeof k.zusammenfassung !== 'string') {
+      aiVerbrauch.kaputteAntworten++
+      throw new HttpFehler(502, 'Antwort ohne Scores/Titel/Zusammenfassung')
+    }
+    k.qualityScore = Number(k.qualityScore)
+    k.niveau = Number(k.niveau)
     k.zuordnungen ??= []
     k.tags ??= []
     k.neueTagVorschlaege ??= []

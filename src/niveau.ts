@@ -103,19 +103,23 @@ export function berechneNiveau(treffer: KriteriumTreffer[], katalog: Kriterium[]
 // Woher der angezeigte Niveau-Score kommt. Beide Werte werden immer gespeichert (Material.niveau
 // und Material.niveauKi), das hier entscheidet nur, welcher angezeigt wird.
 //
-// Vorerst 'ki': Auf den Anker-Belegen trifft die direkte Schaetzung das Band in 7 von 8 Faellen,
-// der Katalog in 6 von 8, und der Katalog liest systematisch ein paar Punkte zu tief (im Band
-// 81-100 deutlich). Dafuer ist er ueber zwei Laeufe viel stabiler (1.5 statt 4.2 Punkte Abstand)
-// und nachvollziehbar. Sobald der Katalog nachgezogen ist, hier auf 'kriterien' stellen und
-// `npx tsx scripts/niveau-neu-rechnen.ts` laufen lassen — ohne neuen Crawl.
-export const NIVEAU_QUELLE: 'ki' | 'kriterien' = (process.env.NIVEAU_QUELLE as 'ki' | 'kriterien') ?? 'ki'
+// 'kombiniert' (Standard, entschieden 1.10.2026 nach Vergleich an 9'226 Materialien): Die direkte
+// KI-Zahl stuft Programmiermaterial zu tief ein und hat Ausreisser (PyTamaro: 1); der Katalog liegt
+// dort besser, kippt aber, wenn nur ein einzelnes, falsch erkanntes Item feuert (Biber → «Olympiade»).
+//   ≥ 2 verschiedene Items → Katalog-Wert
+//   genau 1 Item           → Mittel aus Katalog und KI
+//   kein Item              → KI-Zahl
+// Umstellen ändert nur die Anzeige; `npx tsx scripts/niveau-neu-rechnen.ts --schreiben` rechnet ohne Crawl neu.
+export type NiveauQuelle = 'ki' | 'kriterien' | 'kombiniert'
+export const NIVEAU_QUELLE: NiveauQuelle = (process.env.NIVEAU_QUELLE as NiveauQuelle) ?? 'kombiniert'
 
-// Der angezeigte Score: je nach Schalter aus den Kriterien oder direkt von der KI. Feuert kein
-// Kriterium (Material ausserhalb des Katalogs, z.B. Mathematik-Stoff auf einer Informatik-Quelle),
-// gilt immer die Zahl.
-export function niveauScore(treffer: KriteriumTreffer[], katalog: Kriterium[], niveauKi: number): number {
-  if (NIVEAU_QUELLE !== 'kriterien') return niveauKi
-  return berechneNiveau(treffer, katalog) ?? niveauKi
+export function niveauScore(treffer: KriteriumTreffer[], katalog: Kriterium[], niveauKi: number, quelle: NiveauQuelle = NIVEAU_QUELLE): number {
+  if (quelle === 'ki') return niveauKi
+  const kat = berechneNiveau(treffer, katalog)
+  if (kat == null) return niveauKi
+  if (quelle === 'kriterien') return kat
+  const ids = new Set(treffer.filter((t) => katalog.some((k) => k.id === t.id)).map((t) => t.id))
+  return ids.size >= 2 ? kat : Math.round((kat + niveauKi) / 2)
 }
 
 // Prompt-Teil fuer die Kriterien-Erfassung; der Katalog selbst wird in ai.ts angehaengt.
