@@ -24,9 +24,10 @@ Prompt wird daraus erzeugt. Abgeleitet aus der gekürzten Ankerfassung vom 27.9.
 - `gleichstromkreis` | 50 | Gleichstromkreise analysieren (Ersatzwiderstand, Leistung, Kosten)
 - `waermelehre` | 52 | Mischtemperaturen und Schmelzwärme berechnen
 - `schiefer-wurf` | 53 | Den schiefen Wurf berechnen und in Diagrammen darstellen
-- `schwingungen` | 54 | Schwingungen beschreiben
+- `schwingungen` | 54 | Harmonische Schwingungen mit Periode, Frequenz und Amplitude berechnen
 - `schiefe-ebene` | 56 | Kräfte an der schiefen Ebene zerlegen und literal herleiten
 - `erhaltungssaetze` | 57 | Impuls- und Energieerhaltung begründet anwenden
+- `moderne-physik-qualitativ` | 56 | Einen Aspekt moderner Physik qualitativ erklären (Photoeffekt, Relativität) wie im Grundlagenfach
 
 ## Schwerpunkt-/Ergänzungsfach
 - `fehlerrechnung` | 64 | Messunsicherheiten fortpflanzen und angeben
@@ -35,7 +36,7 @@ Prompt wird daraus erzeugt. Abgeleitet aus der gekürzten Ankerfassung vom 27.9.
 - `mechanik-analysis` | 70 | Mechanikprobleme mit Analysis lösen (z.B. Trägheitsmoment per Integral)
 - `em-felder` | 72 | Elektromagnetische Felder allgemein herleiten (Wien-Filter, Massenspektrometer)
 - `relativitaet` | 74 | Zeitdilatation und Längenkontraktion herleiten und berechnen
-- `quantenphysik` | 74 | Photoeffekt und Atommodelle quantitativ erklären
+- `quantenphysik` | 74 | Photoeffekt und Atommodelle quantitativ herleiten und berechnen
 - `olympiade-phy` | 76 | Aufgaben der Physik-Olympiade (1. und 2. Runde) lösen
 
 ## Hochschule
