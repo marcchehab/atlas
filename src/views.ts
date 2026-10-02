@@ -327,6 +327,7 @@ ${seo?.jsonLd ? `<script type="application/ld+json">${JSON.stringify(seo.jsonLd)
   .krit-name { font-size: .82rem; line-height: 1.25; }
   .krit-wert { font-size: .82rem; display: flex; align-items: center; gap: .35rem; white-space: nowrap; }
   .krit-wert strong { font-variant-numeric: tabular-nums; }
+  .marke { width: 1.1em; height: 1.1em; vertical-align: -.2em; margin-right: .2em; }
   .krit-stimmen { display: block; font-size: .66rem; opacity: .6; }
   .krit-bahn { position: relative; display: flex; align-items: center; height: 1.4rem; }
   .krit-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 1.4rem; background: transparent; margin: 0; cursor: pointer; }
