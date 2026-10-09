@@ -1,3 +1,8 @@
 atlas.eduskript.org {
 	reverse_proxy app:3000
 }
+
+# Sky Stories (eigenes Compose-Projekt ~/skystories, hängt im Netz atlas_default)
+skystories.eduskript.org {
+	reverse_proxy skystories-app:3000
+}
