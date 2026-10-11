@@ -9,6 +9,7 @@ import { fachAnker, fachKriterien, katalogMitStimmen, niveauScore, Kriterium, NI
 import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
 import { syncEduskriptVerzeichnis } from './verzeichnis.js'
+import { STICHWORTE } from './stichworte.js'
 
 const TODES_SCHWELLE = 3
 const PDF_MAX_BYTES = 25 * 1024 * 1024
@@ -49,8 +50,9 @@ async function ladeKontext(disziplinCode?: string | null) {
   if (teilgebiete.length === 0 && disziplinCode) teilgebiete = await prisma.teilgebiet.findMany({ include }) // unbekannter Hinweis → alle Disziplinen
   const mehrereFaecher = new Set(teilgebiete.map((tg) => tg.lerngebiet.fachId)).size > 1
   const fachPrefix = (tg: (typeof teilgebiete)[number]) => (mehrereFaecher ? `${tg.lerngebiet.fach.name}: ` : '')
+  const stichworte = (tg: (typeof teilgebiete)[number]) => { const s = STICHWORTE[`${tg.lerngebiet.fach.code}:${tg.code}`]; return s ? ` — Themen z.B.: ${s}` : '' }
   const optionen = teilgebiete.flatMap((tg) => [
-    { code: `T:${tg.lerngebiet.fach.code}:${tg.code}`, label: `${fachPrefix(tg)}${tg.lerngebiet.name} → ${tg.name} (gesamtes Teilgebiet)` },
+    { code: `T:${tg.lerngebiet.fach.code}:${tg.code}`, label: `${fachPrefix(tg)}${tg.lerngebiet.name} → ${tg.name} (gesamtes Teilgebiet)${stichworte(tg)}` },
     ...tg.kompetenzen.map((ko) => ({ code: `K:${tg.lerngebiet.fach.code}:${ko.code}`, label: `${fachPrefix(tg)}${ko.text}` })),
   ])
   const tags = await prisma.tag.findMany({ where: { status: 'AKTIV' }, select: { name: true } })
