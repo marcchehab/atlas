@@ -793,7 +793,7 @@ function werkzeug(cmd: string, args: string[]): Promise<string> {
 }
 const pdftotext = (pfad: string) => werkzeug('pdftotext', [pfad, '-'])
 
-async function dateiText(pfad: string): Promise<string | null> {
+export async function dateiText(pfad: string): Promise<string | null> {
   const ext = path.extname(pfad).toLowerCase()
   try {
     if (['.md', '.markdown', '.txt', '.tex'].includes(ext)) return await fs.readFile(pfad, 'utf8')

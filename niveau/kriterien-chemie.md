@@ -5,25 +5,30 @@ Prompt wird daraus erzeugt. Abgeleitet aus der gekürzten Ankerfassung vom 27.9.
 **Von einer Chemie-Lehrperson noch nicht gegengelesen.**
 
 ## Sek I
-- `indikator` | 12 | Lösungen mit Indikator als sauer oder basisch einordnen
-- `stoffeigenschaften` | 15 | Stoffeigenschaften messen (Siedetemperatur, Dichte, Löslichkeit)
-- `trennverfahren` | 16 | Ein passendes Trennverfahren wählen
-- `wortschema` | 17 | Eine Reaktion als Wortschema und im Kugelmodell darstellen
-- `neutralisation-anleitung` | 18 | Eine Neutralisation nach Anleitung durchführen und beschreiben
+- `indikator` | 25 | Lösungen mit Indikator als sauer oder basisch einordnen (nicht zusammen mit `indikator-gleichgewicht`: wird der Farbumschlag erklärt, nur jenes)
+- `wortschema` | 17 | Eine Reaktion nur als Wortschema oder im Kugelmodell darstellen, ohne Formelgleichung
 
 ## Sek I erweitert / Progymnasium
-- `schalenmodell` | 30 | Atome mit dem Schalenmodell beschreiben
-- `pse-ablesen` | 30 | Valenzelektronen und Angaben aus dem PSE ablesen
-- `gleichungen-ausgleichen` | 34 | Reaktionsgleichungen ausgleichen
-- `salzformeln` | 35 | Salzformeln aus Ionenladungen ableiten
+- `schalenmodell` | 40 | Atome mit dem Schalenmodell beschreiben (nicht zusammen mit `orbitalmodell`: geht das Material zum Kugelwolken- oder Orbitalmodell weiter, nur jenes)
+- `pse-ablesen` | 38 | Valenzelektronen und Angaben aus dem PSE ablesen (nur wenn das Ablesen selbst geübt wird, nicht als Hilfsmittel in einem Atombau- oder Bindungsmaterial)
+- `gleichungen-ausgleichen` | 38 | Reaktionsgleichungen ausgleichen
+- `salzformeln` | 40 | Salzformeln aus Ionenladungen ableiten
+- `trennung-begruenden` | 42 | Trennverfahren mit Siedetemperatur, Löslichkeit oder Polarität begründen
 
 ## Grundlagenfach
+- `eigenschaften-erklaeren` | 42 | Stoffeigenschaften (Leitfähigkeit, Härte, Löslichkeit, Schmelztemperatur) mit Teilchen, Ionen oder Bindungstyp erklären
+- `titration-auswerten` | 45 | Eine Titration durchführen und die Konzentration daraus berechnen
+- `lewis-geometrie` | 45 | Lewis-Formeln zeichnen und die Molekülgeometrie ableiten (VSEPR, Polarität)
+- `orbitalmodell` | 48 | Elektronenkonfiguration mit dem Kugelwolken- oder Orbitalmodell beschreiben, Ionisierungsenergien und Energieniveaus deuten
 - `stoechiometrie` | 45 | Stoffmengen und Massen mit der Molmasse berechnen
 - `ph-stark` | 46 | pH starker Säuren und Basen berechnen
+- `indikator-gleichgewicht` | 48 | Farbumschlag von Indikatoren als Protolyse-Gleichgewicht erklären
 - `oxidationszahlen` | 48 | Redoxreaktionen mit Oxidationszahlen aufstellen
 - `gasvolumen` | 48 | Gasvolumen berechnen
+- `reaktionsenthalpie` | 50 | Reaktionsenthalpien aus Tabellenwerten berechnen und exo-/endotherm deuten
+- `elektrochemie` | 52 | Galvanische Zellen, Batterien oder Elektrolyse mit der Redoxreihe erklären
 - `limitierendes-edukt` | 52 | Limitierendes Edukt und Ausbeute bestimmen
-- `zwischenmolekular` | 53 | Siedepunkt und Löslichkeit aus Bindungstyp und zwischenmolekularen Kräften erklären
+- `zwischenmolekular` | 48 | Siedepunkt und Löslichkeit aus Bindungstyp und zwischenmolekularen Kräften erklären
 - `broensted` | 54 | Säure-Base nach Brønsted, Lage des Gleichgewichts mit der pKs-Tabelle begründen
 - `neutralisation-ueberschuss` | 55 | Neutralisation mit Überschuss berechnen
 - `organik-grundzuege` | 56 | Organische Verbindungen benennen und Stoffklassen zuordnen
