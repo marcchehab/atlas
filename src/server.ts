@@ -8,6 +8,7 @@ import * as auth from './auth.js'
 import { sendeMail } from './mail.js'
 import { pruefeOeffentlich } from './netz.js'
 import { SCORE_PROMPT, SCORE_BAENDER, MODELL_NAME } from './ai.js'
+import { STICHWORTE, STICHWORT_HERKUNFT } from './stichworte.js'
 import { NIVEAU_PROMPT, NIVEAU_BAENDER, niveauBandName, fachAnker, fachKriterien, wirksamesNiveau, KRITERIEN_PROMPT, mdZuHtml } from './niveau.js'
 import { NIVEAU_WARNUNG, nachDisziplin, layout, esc, kürze, sidebar, materialKarte, rangGruppe, loginSeite, filterLeiste, tagVorschlagChip, quellenKey, MaterialKarte, TagVorschlag, FilterChip, BASE_URL, tgPfad, koPfad, grossErst } from './views.js'
 
@@ -490,6 +491,7 @@ app.get('/fach/:fach/t/:code', async (req, res) => {
   const body = `<h1>${esc(tg.code)} ${esc(tg.name)} – Unterrichtsmaterial</h1>
 <p class="meta">${tg.lerngebiet.nummer}. ${esc(tg.lerngebiet.name)}</p>
 <ul class="meta">${tg.kompetenzen.map((k) => `<li><a href="${koPfad(fach.code, k.code, k.text)}">${esc(k.text)}</a></li>`).join('')}</ul>
+${themenBeispiele(fach.code, tg.code)}
 <form class="suche" onsubmit="ladeListe();return false"><input type="search" id="suchfeld" oninput="sucheTipp()" value="${esc(String(req.query.q ?? ''))}" placeholder="Volltextsuche in diesem Teilgebiet"><button>Suchen</button></form>
 <div id="materialliste" data-liste="${esc(basis)}">${liste}</div>`
   res.send(layout(`Unterrichtsmaterial ${tg.name} – ${disziplinName} Gymnasium`, side, body, user, {
@@ -821,6 +823,16 @@ ${await quellenListe(user)}`
 })
 
 // Transparenz: Ranking-Formel, Bänder und der wörtliche Bewertungs-Prompt
+// Themenbeispiele eines Teilgebiets (src/stichworte.ts), mit Herkunft — die KI bekommt sie fürs Zuordnen
+function themenBeispiele(fachCode: string, tgCode: string): string {
+  const sw = STICHWORTE[`${fachCode}:${tgCode}`]
+  if (!sw) return ''
+  const h = STICHWORT_HERKUNFT[fachCode]
+  const herkunft = h ? (h.url ? ` (<a href="${h.url}" rel="noopener">${esc(h.text)}</a>)` : ` (${esc(h.text)})`) : ''
+  return `<p class="meta"><strong>Themenbeispiele für die Zuordnung:</strong> ${esc(sw)}<br>
+Von Atlas zusammengestellt${herkunft}. Keine Erhebung, was im Unterricht verbreitet ist: Die Beispiele helfen der KI zu entscheiden, ob ein Material zu diesem Teilgebiet gehört. · <a href="/sortierung#zuordnung">Wie Atlas zuordnet</a></p>`
+}
+
 app.get('/sortierung', async (req, res) => {
   const user = await aktuellerUser(req)
   const side = await baueSidebar(await aktivesFach(req), undefined, user)
@@ -836,7 +848,9 @@ ${SCORE_BAENDER.map(([von, name, kurz], i) => `<tr><td>${von}–${(SCORE_BAENDER
 <p class="meta">Wörtlich der Teil des Klassifikations-Prompts, der die KI-Bewertung bestimmt — direkt aus dem Quelltext, damit diese Seite nie veraltet.</p>
 <pre style="white-space:pre-wrap;font-size:.8rem;background:var(--card);border:1px solid var(--rand);border-radius:10px;padding:.9rem 1.1rem">${esc(SCORE_PROMPT)}</pre>
 <p class="meta">Modell: ${MODELL_NAME}. Der ganze Code ist offen: <a href="https://github.com/marcchehab/atlas" rel="noopener">github.com/marcchehab/atlas</a>.</p>
-<p>Getrennt davon gibt es den <a href="/niveau">Niveau-Score</a>: Für welche Stufe ist ein Material fachlich gemacht?</p>`
+<p>Getrennt davon gibt es den <a href="/niveau">Niveau-Score</a>: Für welche Stufe ist ein Material fachlich gemacht?</p>
+<h2 id="zuordnung">Wie ordnet Atlas zu?</h2>
+<p>Die KI ordnet jedes Material den Kompetenzen des Rahmenlehrplans 2024 zu, mehrere sind möglich. Deckt ein Material ein Teilgebiet breit ab, wird es dem ganzen Teilgebiet zugeordnet. Weil der Rahmenlehrplan knapp formuliert ist, bekommt die KI pro Teilgebiet zusätzlich Themenbeispiele. Sie stehen auf der jeweiligen Teilgebiet-Seite, sind von Atlas zusammengestellt und keine Aussage darüber, was im Unterricht häufig vorkommt. Didaktik-Score und Niveau hängen nicht davon ab.</p>`
   res.send(layout('Wie wird sortiert?', side, body, user, { pfad: '/sortierung', beschreibung: 'So sortiert Atlas Unterrichtsmaterial: Didaktik-Score in fünf Bändern plus Stimmen der Community — mit dem vollständigen Bewertungs-Prompt.' }))
 })
 
